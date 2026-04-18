@@ -3,18 +3,17 @@ using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Threading;
+using ViperLink.App.Platform.Abstractions;
 
-namespace ViperLink.App.Services;
+namespace ViperLink.App.Platform.Windows.Hid;
 
-internal static class WindowsHidFeatureTransport
+public sealed class WindowsHidFeatureTransport : IHidFeatureTransport
 {
     private const uint FileShareRead = 0x00000001;
     private const uint FileShareWrite = 0x00000002;
     private const uint OpenExisting = 3;
 
-    public static bool IsSupported => OperatingSystem.IsWindows();
-
-    public static bool TryExchangeFeatureReport(string devicePath, byte[] request, byte[] response, out string error)
+    public bool TryExchangeFeatureReport(string devicePath, byte[] request, byte[] response, out string error)
     {
         error = string.Empty;
 

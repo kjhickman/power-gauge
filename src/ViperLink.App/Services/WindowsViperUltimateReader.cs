@@ -4,6 +4,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using ViperLink.App.Platform.Abstractions;
+using ViperLink.App.Platform.Windows.Hid;
 using ViperLink.App;
 
 namespace ViperLink.App.Services;
@@ -14,16 +16,29 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
     private const int WiredProductId = 0x007a;
     private const int WirelessProductId = 0x007b;
     private static readonly HashSet<int> SupportedProductIds = [WiredProductId, WirelessProductId];
+    private readonly IHidDeviceEnumerator _deviceEnumerator;
+    private readonly IHidFeatureTransport _featureTransport;
+
+    public WindowsViperUltimateReader()
+        : this(new WindowsHidDeviceEnumerator(), new WindowsHidFeatureTransport())
+    {
+    }
+
+    public WindowsViperUltimateReader(IHidDeviceEnumerator deviceEnumerator, IHidFeatureTransport featureTransport)
+    {
+        _deviceEnumerator = deviceEnumerator;
+        _featureTransport = featureTransport;
+    }
 
     public MousePowerSnapshot Probe()
     {
         var timestamp = DateTimeOffset.Now;
         var diagnostics = new StringBuilder();
 
-        IReadOnlyList<WindowsHidDeviceInfo> razerDevices;
+        IReadOnlyList<HidDeviceInfo> razerDevices;
         try
         {
-            razerDevices = WindowsHidDeviceEnumerator
+            razerDevices = _deviceEnumerator
                 .Enumerate()
                 .Where(device => device.VendorId == RazerVendorId)
                 .OrderBy(device => device.ProductId)
@@ -124,7 +139,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
             diagnostics.ToString()));
     }
 
-    private static IReadOnlyList<WindowsHidDeviceInfo> PrioritizeDevices(IReadOnlyList<WindowsHidDeviceInfo> devices)
+    private static IReadOnlyList<HidDeviceInfo> PrioritizeDevices(IReadOnlyList<HidDeviceInfo> devices)
     {
         return devices
             .Where(IsLikelyWindowsTopLevelCollection)
@@ -133,7 +148,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
             .ToArray();
     }
 
-    private static bool TryReadBattery(WindowsHidDeviceInfo device, StringBuilder diagnostics, out int batteryPercent)
+    private bool TryReadBattery(HidDeviceInfo device, StringBuilder diagnostics, out int batteryPercent)
     {
         batteryPercent = 0;
 
@@ -147,7 +162,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         return true;
     }
 
-    private static bool TryReadChargingStatus(WindowsHidDeviceInfo device, StringBuilder diagnostics, out bool isCharging)
+    private bool TryReadChargingStatus(HidDeviceInfo device, StringBuilder diagnostics, out bool isCharging)
     {
         isCharging = false;
 
@@ -161,7 +176,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         return true;
     }
 
-    private static bool TryReadPowerResponse(WindowsHidDeviceInfo device, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
+    private bool TryReadPowerResponse(HidDeviceInfo device, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
     {
         responsePayload = Array.Empty<byte>();
 
@@ -177,7 +192,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         return TryReadPowerResponseViaWindowsHid(device, reportLength, diagnostics, commandId, responseLabel, out responsePayload);
     }
 
-    private static bool TryReadPowerResponseViaWindowsHid(WindowsHidDeviceInfo device, int reportLength, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
+    private bool TryReadPowerResponseViaWindowsHid(HidDeviceInfo device, int reportLength, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
     {
         responsePayload = Array.Empty<byte>();
         var payloadOffset = reportLength == RazerProtocol.ReportLength + 1 ? 1 : 0;
@@ -191,7 +206,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
 
             var response = new byte[reportLength];
 
-            if (!WindowsHidFeatureTransport.TryExchangeFeatureReport(device.DevicePath, request, response, out var error))
+            if (!_featureTransport.TryExchangeFeatureReport(device.DevicePath, request, response, out var error))
             {
                 diagnostics.AppendLine($"Transaction 0x{transactionId:x2} failed: {error}");
                 continue;
@@ -212,7 +227,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         return false;
     }
 
-    private static string DescribeDevice(WindowsHidDeviceInfo device)
+    private static string DescribeDevice(HidDeviceInfo device)
     {
         var name = device.ProductName;
         return string.Create(
@@ -261,7 +276,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         }
     }
 
-    private static int GetDevicePriority(WindowsHidDeviceInfo device)
+    private static int GetDevicePriority(HidDeviceInfo device)
     {
         return device.ProductId switch
         {
@@ -271,7 +286,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         };
     }
 
-    private static string GetDeviceDisplayName(WindowsHidDeviceInfo device)
+    private static string GetDeviceDisplayName(HidDeviceInfo device)
     {
         return device.ProductId switch
         {
@@ -281,7 +296,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         };
     }
 
-    private static bool IsLikelyWindowsTopLevelCollection(WindowsHidDeviceInfo device)
+    private static bool IsLikelyWindowsTopLevelCollection(HidDeviceInfo device)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -301,7 +316,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         return !device.DevicePath.Contains("\\kbd", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool ShouldDiscardBatteryReading(WindowsHidDeviceInfo device, int batteryPercent, bool? isCharging)
+    private static bool ShouldDiscardBatteryReading(HidDeviceInfo device, int batteryPercent, bool? isCharging)
     {
         return device.ProductId == WirelessProductId
             && batteryPercent == 0

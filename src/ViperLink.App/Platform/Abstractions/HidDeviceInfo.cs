@@ -1,6 +1,6 @@
-namespace ViperLink.App.Services;
+namespace ViperLink.App.Platform.Abstractions;
 
-internal sealed record WindowsHidDeviceInfo(
+public sealed record HidDeviceInfo(
     string DevicePath,
     int VendorId,
     int ProductId,

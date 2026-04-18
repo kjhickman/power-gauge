@@ -2,12 +2,14 @@ using Microsoft.Win32.SafeHandles;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
+using ViperLink.App.Platform.Abstractions;
 
-namespace ViperLink.App.Services;
+namespace ViperLink.App.Platform.Windows.Hid;
 
-internal static class WindowsHidDeviceEnumerator
+public sealed class WindowsHidDeviceEnumerator : IHidDeviceEnumerator
 {
     private const uint DigcfPresent = 0x00000002;
     private const uint DigcfDeviceInterface = 0x00000010;
@@ -19,7 +21,7 @@ internal static class WindowsHidDeviceEnumerator
     private const int HidpStatusSuccess = 0x00110000;
     private static readonly IntPtr InvalidDeviceInfoSet = new(-1);
 
-    public static IReadOnlyList<WindowsHidDeviceInfo> Enumerate()
+    public IReadOnlyList<HidDeviceInfo> Enumerate()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -35,7 +37,7 @@ internal static class WindowsHidDeviceEnumerator
 
         try
         {
-            var devices = new List<WindowsHidDeviceInfo>();
+            var devices = new List<HidDeviceInfo>();
 
             for (uint index = 0; ; index++)
             {
@@ -94,7 +96,7 @@ internal static class WindowsHidDeviceEnumerator
         }
     }
 
-    private static WindowsHidDeviceInfo GetDeviceInfo(string devicePath)
+    private static HidDeviceInfo GetDeviceInfo(string devicePath)
     {
         var fallback = CreateFallbackDeviceInfo(devicePath);
 
@@ -140,7 +142,7 @@ internal static class WindowsHidDeviceEnumerator
         }
 
         var productName = GetProductName(handle);
-        return new WindowsHidDeviceInfo(
+        return new HidDeviceInfo(
             devicePath,
             attributes.VendorID,
             attributes.ProductID,
@@ -148,9 +150,9 @@ internal static class WindowsHidDeviceEnumerator
             string.IsNullOrWhiteSpace(productName) ? fallback.ProductName : productName);
     }
 
-    private static WindowsHidDeviceInfo CreateFallbackDeviceInfo(string devicePath)
+    private static HidDeviceInfo CreateFallbackDeviceInfo(string devicePath)
     {
-        return new WindowsHidDeviceInfo(
+        return new HidDeviceInfo(
             devicePath,
             ParseHexSegment(devicePath, "vid_"),
             ParseHexSegment(devicePath, "pid_"),
@@ -178,7 +180,7 @@ internal static class WindowsHidDeviceEnumerator
         }
 
         var hexValue = devicePath.Substring(index + marker.Length, 4);
-        return int.TryParse(hexValue, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+        return int.TryParse(hexValue, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : 0;
     }
