@@ -11,7 +11,9 @@ namespace ViperLink.App.Services;
 public sealed class WindowsViperUltimateReader : IViperPowerReader
 {
     private const int RazerVendorId = 0x1532;
-    private static readonly HashSet<int> PreferredProductIds = [0x007a, 0x007b];
+    private const int WiredProductId = 0x007a;
+    private const int WirelessProductId = 0x007b;
+    private static readonly HashSet<int> SupportedProductIds = [WiredProductId, WirelessProductId];
 
     public MousePowerSnapshot Probe()
     {
@@ -61,6 +63,19 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         }
 
         var candidateDevices = PrioritizeDevices(razerDevices);
+        if (candidateDevices.Count == 0)
+        {
+            diagnostics.AppendLine("No supported Viper Ultimate device found.");
+            return FinalizeSnapshot(new MousePowerSnapshot(
+                timestamp,
+                "no supported Viper Ultimate device",
+                null,
+                null,
+                false,
+                "no supported device",
+                diagnostics.ToString()));
+        }
+
         diagnostics.AppendLine($"Prioritized {candidateDevices.Count} candidate device(s) for probing.");
 
         foreach (var device in candidateDevices)
@@ -77,7 +92,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
 
                 return FinalizeSnapshot(new MousePowerSnapshot(
                     timestamp,
-                    DescribeDevice(device),
+                    GetDeviceDisplayName(device),
                     batteryPercent,
                     isCharging,
                     true,
@@ -98,32 +113,11 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
 
     private static IReadOnlyList<HidDevice> PrioritizeDevices(IReadOnlyList<HidDevice> devices)
     {
-        if (OperatingSystem.IsWindows())
-        {
-            var topLevelCollections = devices
-                .Where(device => IsLikelyWindowsTopLevelCollection(device))
-                .ToArray();
-
-            if (topLevelCollections.Length > 0)
-            {
-                return topLevelCollections;
-            }
-        }
-
-        var preferred = devices
-            .Where(device => PreferredProductIds.Contains(device.ProductID) || LooksLikeViperUltimate(device))
+        return devices
+            .Where(IsLikelyWindowsTopLevelCollection)
+            .OrderBy(GetDevicePriority)
+            .ThenBy(device => device.DevicePath, StringComparer.Ordinal)
             .ToArray();
-
-        if (preferred.Length > 0)
-        {
-            return preferred;
-        }
-
-        var reportSized = devices
-            .Where(device => device.GetMaxFeatureReportLength() >= RazerProtocol.ReportLength)
-            .ToArray();
-
-        return reportSized.Length > 0 ? reportSized : devices;
     }
 
     private static bool TryReadBattery(HidDevice device, StringBuilder diagnostics, out int batteryPercent)
@@ -297,11 +291,24 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         }
     }
 
-    private static bool LooksLikeViperUltimate(HidDevice device)
+    private static int GetDevicePriority(HidDevice device)
     {
-        var name = device.GetFriendlyName();
-        return name.Contains("Viper Ultimate", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("Viper Ultimate Dongle", StringComparison.OrdinalIgnoreCase);
+        return device.ProductID switch
+        {
+            WiredProductId => 0,
+            WirelessProductId => 1,
+            _ => 2,
+        };
+    }
+
+    private static string GetDeviceDisplayName(HidDevice device)
+    {
+        return device.ProductID switch
+        {
+            WiredProductId => "Razer Viper Ultimate (Wired)",
+            WirelessProductId => "Razer Viper Ultimate (Wireless)",
+            _ => device.GetFriendlyName(),
+        };
     }
 
     private static bool IsLikelyWindowsTopLevelCollection(HidDevice device)
@@ -316,7 +323,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
             return false;
         }
 
-        if (!PreferredProductIds.Contains(device.ProductID) && !LooksLikeViperUltimate(device))
+        if (!SupportedProductIds.Contains(device.ProductID))
         {
             return false;
         }
