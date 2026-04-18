@@ -46,6 +46,11 @@ internal static class RazerProtocol
         return (int)Math.Round(response[9] * 100.0 / 255.0, MidpointRounding.AwayFromZero);
     }
 
+    public static bool ParseChargingStatus(IReadOnlyList<byte> response)
+    {
+        return response[9] == 0x01 || response[11] == 0x01;
+    }
+
     private static byte CalculateChecksum(IReadOnlyList<byte> report)
     {
         byte checksum = 0x00;

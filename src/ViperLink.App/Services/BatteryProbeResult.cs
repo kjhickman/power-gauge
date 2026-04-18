@@ -5,6 +5,7 @@ namespace ViperLink.App.Services;
 
 public sealed record BatteryProbeResult(
     string BatteryHeader,
+    string StatusHeader,
     string DeviceHeader,
     string ResultHeader,
     string DiagnosticsHeader,
@@ -16,16 +17,23 @@ public sealed record BatteryProbeResult(
         var batteryHeader = snapshot.BatteryPercent is int batteryPercent
             ? $"Battery: {batteryPercent}%"
             : "Battery: unavailable";
+        var statusHeader = snapshot.IsCharging switch
+        {
+            true => "Status: charging",
+            false => "Status: on battery",
+            _ => "Status: unavailable",
+        };
         var resultHeader = snapshot.IsSuccessful
             ? $"Last probe: success at {snapshot.Timestamp:HH:mm:ss}"
             : $"Last probe: {snapshot.ResultDetail} at {snapshot.Timestamp:HH:mm:ss}";
         var tooltipDeviceName = GetTooltipDeviceName(snapshot.DeviceDisplayName);
         var toolTipText = snapshot.BatteryPercent is int percent
-            ? $"ViperLink spike\n{tooltipDeviceName}: {percent}%"
+            ? BuildTooltip(tooltipDeviceName, percent, snapshot.IsCharging)
             : "ViperLink spike\nBattery unavailable";
 
         return new BatteryProbeResult(
             batteryHeader,
+            statusHeader,
             $"Device: {snapshot.DeviceDisplayName}",
             resultHeader,
             TruncateHeader($"Diagnostics: {LastDiagnosticLine(snapshot.Diagnostics)}"),
@@ -50,5 +58,16 @@ public sealed record BatteryProbeResult(
     {
         var detailsStart = deviceDisplayName.IndexOf(" (", StringComparison.Ordinal);
         return detailsStart > 0 ? deviceDisplayName[..detailsStart] : deviceDisplayName;
+    }
+
+    private static string BuildTooltip(string deviceName, int batteryPercent, bool? isCharging)
+    {
+        var tooltip = $"ViperLink spike\n{deviceName}: {batteryPercent}%";
+        return isCharging switch
+        {
+            true => $"{tooltip}\nStatus: Charging",
+            false => $"{tooltip}\nStatus: On battery",
+            _ => tooltip,
+        };
     }
 }

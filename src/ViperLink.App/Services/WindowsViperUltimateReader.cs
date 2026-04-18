@@ -69,11 +69,17 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
 
             if (TryReadBattery(device, diagnostics, out var batteryPercent))
             {
+                bool? isCharging = null;
+                if (TryReadChargingStatus(device, diagnostics, out var charging))
+                {
+                    isCharging = charging;
+                }
+
                 return FinalizeSnapshot(new MousePowerSnapshot(
                     timestamp,
                     DescribeDevice(device),
                     batteryPercent,
-                    null,
+                    isCharging,
                     true,
                     "success",
                     diagnostics.ToString()));
@@ -124,6 +130,34 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
     {
         batteryPercent = 0;
 
+        if (!TryReadPowerResponse(device, diagnostics, RazerProtocol.GetBatteryCommandId, "Battery", out var responsePayload))
+        {
+            return false;
+        }
+
+        batteryPercent = RazerProtocol.ParseBatteryPercent(responsePayload);
+        diagnostics.AppendLine($"Battery byte {responsePayload[9]} parsed as {batteryPercent}%.");
+        return true;
+    }
+
+    private static bool TryReadChargingStatus(HidDevice device, StringBuilder diagnostics, out bool isCharging)
+    {
+        isCharging = false;
+
+        if (!TryReadPowerResponse(device, diagnostics, RazerProtocol.GetChargingStatusCommandId, "Charging", out var responsePayload))
+        {
+            return false;
+        }
+
+        isCharging = RazerProtocol.ParseChargingStatus(responsePayload);
+        diagnostics.AppendLine($"Charging byte {responsePayload[11]} parsed as {(isCharging ? "charging" : "on battery")}.");
+        return true;
+    }
+
+    private static bool TryReadPowerResponse(HidDevice device, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
+    {
+        responsePayload = Array.Empty<byte>();
+
         var reportLength = Math.Max(RazerProtocol.ReportLength, device.GetMaxFeatureReportLength());
         diagnostics.AppendLine($"Feature report length: {reportLength}");
         if (reportLength < RazerProtocol.ReportLength)
@@ -135,7 +169,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         if (WindowsHidFeatureTransport.IsSupported && IsLikelyWindowsTopLevelCollection(device))
         {
             diagnostics.AppendLine("Using Windows native HID feature transport.");
-            return TryReadBatteryViaWindowsHid(device, reportLength, diagnostics, out batteryPercent);
+            return TryReadPowerResponseViaWindowsHid(device, reportLength, diagnostics, commandId, responseLabel, out responsePayload);
         }
 
         if (!device.TryOpen(out HidStream stream))
@@ -151,7 +185,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
 
             foreach (var transactionId in RazerProtocol.CandidateTransactionIds)
             {
-                var request = RazerProtocol.BuildRequest(reportLength, transactionId, RazerProtocol.PowerCommandClass, RazerProtocol.GetBatteryCommandId);
+                var request = RazerProtocol.BuildRequest(reportLength, transactionId, RazerProtocol.PowerCommandClass, commandId);
                 var response = new byte[reportLength];
 
                 try
@@ -165,15 +199,14 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
                     continue;
                 }
 
-                diagnostics.AppendLine($"Transaction 0x{transactionId:x2} response: {FormatReport(response)}");
+                diagnostics.AppendLine($"{responseLabel} transaction 0x{transactionId:x2} response: {FormatReport(response)}");
 
-                if (!RazerProtocol.LooksLikeResponse(response, transactionId, RazerProtocol.PowerCommandClass, RazerProtocol.GetBatteryCommandId))
+                if (!RazerProtocol.LooksLikeResponse(response, transactionId, RazerProtocol.PowerCommandClass, commandId))
                 {
                     continue;
                 }
 
-                batteryPercent = RazerProtocol.ParseBatteryPercent(response);
-                diagnostics.AppendLine($"Battery byte {response[9]} parsed as {batteryPercent}%.");
+                responsePayload = response;
                 return true;
             }
         }
@@ -181,15 +214,15 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         return false;
     }
 
-    private static bool TryReadBatteryViaWindowsHid(HidDevice device, int reportLength, StringBuilder diagnostics, out int batteryPercent)
+    private static bool TryReadPowerResponseViaWindowsHid(HidDevice device, int reportLength, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
     {
-        batteryPercent = 0;
+        responsePayload = Array.Empty<byte>();
         var payloadOffset = reportLength == RazerProtocol.ReportLength + 1 ? 1 : 0;
         var payloadLength = reportLength - payloadOffset;
 
         foreach (var transactionId in RazerProtocol.CandidateTransactionIds)
         {
-            var requestPayload = RazerProtocol.BuildRequest(payloadLength, transactionId, RazerProtocol.PowerCommandClass, RazerProtocol.GetBatteryCommandId);
+            var requestPayload = RazerProtocol.BuildRequest(payloadLength, transactionId, RazerProtocol.PowerCommandClass, commandId);
             var request = new byte[reportLength];
             Array.Copy(requestPayload, 0, request, payloadOffset, requestPayload.Length);
 
@@ -201,16 +234,15 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
                 continue;
             }
 
-            var responsePayload = response.AsSpan(payloadOffset, payloadLength).ToArray();
-            diagnostics.AppendLine($"Transaction 0x{transactionId:x2} response: {FormatReport(responsePayload)}");
+            var payload = response.AsSpan(payloadOffset, payloadLength).ToArray();
+            diagnostics.AppendLine($"{responseLabel} transaction 0x{transactionId:x2} response: {FormatReport(payload)}");
 
-            if (!RazerProtocol.LooksLikeResponse(responsePayload, transactionId, RazerProtocol.PowerCommandClass, RazerProtocol.GetBatteryCommandId))
+            if (!RazerProtocol.LooksLikeResponse(payload, transactionId, RazerProtocol.PowerCommandClass, commandId))
             {
                 continue;
             }
 
-            batteryPercent = RazerProtocol.ParseBatteryPercent(responsePayload);
-            diagnostics.AppendLine($"Battery byte {responsePayload[9]} parsed as {batteryPercent}%.");
+            responsePayload = payload;
             return true;
         }
 

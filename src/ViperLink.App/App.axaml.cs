@@ -14,6 +14,7 @@ public partial class App : Application
     private readonly IViperPowerReader _powerReader = new WindowsViperUltimateReader();
     private TrayIcon? _statusTrayIcon;
     private NativeMenuItem? _batteryMenuItem;
+    private NativeMenuItem? _statusMenuItem;
     private NativeMenuItem? _deviceMenuItem;
     private NativeMenuItem? _resultMenuItem;
     private NativeMenuItem? _diagnosticsMenuItem;
@@ -54,6 +55,7 @@ public partial class App : Application
     {
         ApplyResult(new BatteryProbeResult(
             "Battery: probing...",
+            "Status: probing...",
             "Device: scanning Razer HID devices...",
             $"Last probe: started at {DateTimeOffset.Now:HH:mm:ss}",
             "Diagnostics: sending battery feature report",
@@ -66,6 +68,7 @@ public partial class App : Application
     private void ApplyResult(BatteryProbeResult result)
     {
         if (_batteryMenuItem is null
+            || _statusMenuItem is null
             || _deviceMenuItem is null
             || _resultMenuItem is null
             || _diagnosticsMenuItem is null
@@ -76,6 +79,7 @@ public partial class App : Application
         }
 
         _batteryMenuItem.Header = result.BatteryHeader;
+        _statusMenuItem.Header = result.StatusHeader;
         _deviceMenuItem.Header = result.DeviceHeader;
         _resultMenuItem.Header = result.ResultHeader;
         _diagnosticsMenuItem.Header = result.DiagnosticsHeader;
@@ -99,6 +103,7 @@ public partial class App : Application
     private void CreateTrayIcon()
     {
         _batteryMenuItem = CreateReadOnlyItem("Battery: probing...");
+        _statusMenuItem = CreateReadOnlyItem("Status: probing...");
         _deviceMenuItem = CreateReadOnlyItem("Device: probing...");
         _resultMenuItem = CreateReadOnlyItem("Last probe: waiting to start");
         _diagnosticsMenuItem = CreateReadOnlyItem("Diagnostics: waiting to start");
@@ -106,6 +111,7 @@ public partial class App : Application
 
         var menu = new NativeMenu();
         menu.Add(_batteryMenuItem);
+        menu.Add(_statusMenuItem);
         menu.Add(_deviceMenuItem);
         menu.Add(_resultMenuItem);
         menu.Add(_diagnosticsMenuItem);
