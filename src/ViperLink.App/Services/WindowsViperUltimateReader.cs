@@ -10,7 +10,7 @@ using ViperLink.App;
 
 namespace ViperLink.App.Services;
 
-public sealed class WindowsViperUltimateReader : IViperPowerReader
+public sealed class WindowsViperUltimateReader : IMousePowerReader
 {
     private const int RazerVendorId = 0x1532;
     private const int WiredProductId = 0x007a;

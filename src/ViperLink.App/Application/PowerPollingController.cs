@@ -6,10 +6,10 @@ namespace ViperLink.App.Application;
 
 public sealed class PowerPollingController
 {
-    private readonly IViperPowerReader _powerReader;
+    private readonly IMousePowerReader _powerReader;
     private MousePowerSnapshot? _lastSuccessfulSnapshot;
 
-    public PowerPollingController(IViperPowerReader powerReader)
+    public PowerPollingController(IMousePowerReader powerReader)
     {
         _powerReader = powerReader;
     }

@@ -1,6 +1,6 @@
 namespace ViperLink.App.Services;
 
-public interface IViperPowerReader
+public interface IMousePowerReader
 {
     MousePowerSnapshot Probe();
 }
