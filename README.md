@@ -1,34 +1,14 @@
 # ViperLink
 
-Initial Avalonia spike for a tray-only Razer mouse battery utility.
+System tray utility for showing the battery % for the `Razer Viper Ultimate` mouse.
 
-## Current spike
+## Features
 
-- Targets `.NET 10`
-- Uses `Avalonia 12.0.1`
-- Uses `HidSharp 2.6.4` for cross-platform HID access
-- Starts as a tray app with no main window
-- Enumerates `Razer` HID devices (`VID 0x1532`)
-- Attempts a vendor feature-report battery read using the current best-known `0x07 / 0x80` power command
+- Windows-only MVP
+- Only supports `Razer Viper Ultimate`
+- Shows battery level, charging status and wired/wireless status
 
-The tray menu currently shows:
+## Limitations
 
-- battery status
-- selected device
-- last probe result
-- a short diagnostics line
-- refresh now
-- quit
-
-## Run
-
-```bash
-dotnet run --project src/ViperLink.App/ViperLink.App.csproj
-```
-
-## Notes
-
-- This is a spike, not the final architecture.
-- The tray icon is still static; the battery percentage is shown in the tooltip and menu.
-- The battery protocol is based on public OpenRazer and related community research, but still needs validation against real `Razer Viper Ultimate` hardware on Windows and macOS.
-- Wireless and wired modes may enumerate as different HID devices.
+- Charging detection is based on observed device responses and may need refinement for docked charging.
+- macOS and Linux are not implemented yet.
