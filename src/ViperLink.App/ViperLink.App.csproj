@@ -7,6 +7,7 @@
     <AssemblyTitle>ViperLink</AssemblyTitle>
     <Product>ViperLink</Product>
     <Description>Tray battery monitor for the Razer Viper Ultimate.</Description>
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
