@@ -1,4 +1,3 @@
-using HidSharp;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -21,13 +20,13 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         var timestamp = DateTimeOffset.Now;
         var diagnostics = new StringBuilder();
 
-        IReadOnlyList<HidDevice> razerDevices;
+        IReadOnlyList<WindowsHidDeviceInfo> razerDevices;
         try
         {
-            razerDevices = DeviceList.Local
-                .GetHidDevices()
-                .Where(device => device.VendorID == RazerVendorId)
-                .OrderBy(device => device.ProductID)
+            razerDevices = WindowsHidDeviceEnumerator
+                .Enumerate()
+                .Where(device => device.VendorId == RazerVendorId)
+                .OrderBy(device => device.ProductId)
                 .ThenBy(device => device.DevicePath, StringComparer.Ordinal)
                 .ToArray();
         }
@@ -125,7 +124,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
             diagnostics.ToString()));
     }
 
-    private static IReadOnlyList<HidDevice> PrioritizeDevices(IReadOnlyList<HidDevice> devices)
+    private static IReadOnlyList<WindowsHidDeviceInfo> PrioritizeDevices(IReadOnlyList<WindowsHidDeviceInfo> devices)
     {
         return devices
             .Where(IsLikelyWindowsTopLevelCollection)
@@ -134,7 +133,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
             .ToArray();
     }
 
-    private static bool TryReadBattery(HidDevice device, StringBuilder diagnostics, out int batteryPercent)
+    private static bool TryReadBattery(WindowsHidDeviceInfo device, StringBuilder diagnostics, out int batteryPercent)
     {
         batteryPercent = 0;
 
@@ -148,7 +147,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         return true;
     }
 
-    private static bool TryReadChargingStatus(HidDevice device, StringBuilder diagnostics, out bool isCharging)
+    private static bool TryReadChargingStatus(WindowsHidDeviceInfo device, StringBuilder diagnostics, out bool isCharging)
     {
         isCharging = false;
 
@@ -162,11 +161,11 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         return true;
     }
 
-    private static bool TryReadPowerResponse(HidDevice device, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
+    private static bool TryReadPowerResponse(WindowsHidDeviceInfo device, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
     {
         responsePayload = Array.Empty<byte>();
 
-        var reportLength = Math.Max(RazerProtocol.ReportLength, device.GetMaxFeatureReportLength());
+        var reportLength = Math.Max(RazerProtocol.ReportLength, device.FeatureReportLength);
         diagnostics.AppendLine($"Feature report length: {reportLength}");
         if (reportLength < RazerProtocol.ReportLength)
         {
@@ -174,55 +173,11 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
             return false;
         }
 
-        if (WindowsHidFeatureTransport.IsSupported && IsLikelyWindowsTopLevelCollection(device))
-        {
-            diagnostics.AppendLine("Using Windows native HID feature transport.");
-            return TryReadPowerResponseViaWindowsHid(device, reportLength, diagnostics, commandId, responseLabel, out responsePayload);
-        }
-
-        if (!device.TryOpen(out HidStream stream))
-        {
-            diagnostics.AppendLine("Open failed.");
-            return false;
-        }
-
-        using (stream)
-        {
-            stream.ReadTimeout = 1000;
-            stream.WriteTimeout = 1000;
-
-            foreach (var transactionId in RazerProtocol.CandidateTransactionIds)
-            {
-                var request = RazerProtocol.BuildRequest(reportLength, transactionId, RazerProtocol.PowerCommandClass, commandId);
-                var response = new byte[reportLength];
-
-                try
-                {
-                    stream.SetFeature(request);
-                    stream.GetFeature(response);
-                }
-                catch (Exception ex)
-                {
-                    diagnostics.AppendLine($"Transaction 0x{transactionId:x2} failed: {ex.Message}");
-                    continue;
-                }
-
-                diagnostics.AppendLine($"{responseLabel} transaction 0x{transactionId:x2} response: {FormatReport(response)}");
-
-                if (!RazerProtocol.LooksLikeResponse(response, transactionId, RazerProtocol.PowerCommandClass, commandId))
-                {
-                    continue;
-                }
-
-                responsePayload = response;
-                return true;
-            }
-        }
-
-        return false;
+        diagnostics.AppendLine("Using Windows native HID feature transport.");
+        return TryReadPowerResponseViaWindowsHid(device, reportLength, diagnostics, commandId, responseLabel, out responsePayload);
     }
 
-    private static bool TryReadPowerResponseViaWindowsHid(HidDevice device, int reportLength, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
+    private static bool TryReadPowerResponseViaWindowsHid(WindowsHidDeviceInfo device, int reportLength, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
     {
         responsePayload = Array.Empty<byte>();
         var payloadOffset = reportLength == RazerProtocol.ReportLength + 1 ? 1 : 0;
@@ -257,12 +212,12 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         return false;
     }
 
-    private static string DescribeDevice(HidDevice device)
+    private static string DescribeDevice(WindowsHidDeviceInfo device)
     {
-        var name = device.GetFriendlyName();
+        var name = device.ProductName;
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"{name} ({device.VendorID:x4}:{device.ProductID:x4}, feature={device.GetMaxFeatureReportLength()}, path={device.DevicePath})");
+            $"{name} ({device.VendorId:x4}:{device.ProductId:x4}, feature={device.FeatureReportLength}, path={device.DevicePath})");
     }
 
     private static string FormatReport(IReadOnlyList<byte> report)
@@ -306,9 +261,9 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         }
     }
 
-    private static int GetDevicePriority(HidDevice device)
+    private static int GetDevicePriority(WindowsHidDeviceInfo device)
     {
-        return device.ProductID switch
+        return device.ProductId switch
         {
             WiredProductId => 0,
             WirelessProductId => 1,
@@ -316,29 +271,29 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         };
     }
 
-    private static string GetDeviceDisplayName(HidDevice device)
+    private static string GetDeviceDisplayName(WindowsHidDeviceInfo device)
     {
-        return device.ProductID switch
+        return device.ProductId switch
         {
             WiredProductId => "Razer Viper Ultimate (Wired)",
             WirelessProductId => "Razer Viper Ultimate (Wireless)",
-            _ => device.GetFriendlyName(),
+            _ => device.ProductName,
         };
     }
 
-    private static bool IsLikelyWindowsTopLevelCollection(HidDevice device)
+    private static bool IsLikelyWindowsTopLevelCollection(WindowsHidDeviceInfo device)
     {
         if (!OperatingSystem.IsWindows())
         {
             return false;
         }
 
-        if (device.GetMaxFeatureReportLength() < RazerProtocol.ReportLength)
+        if (device.FeatureReportLength < RazerProtocol.ReportLength)
         {
             return false;
         }
 
-        if (!SupportedProductIds.Contains(device.ProductID))
+        if (!SupportedProductIds.Contains(device.ProductId))
         {
             return false;
         }
@@ -346,9 +301,9 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         return !device.DevicePath.Contains("\\kbd", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool ShouldDiscardBatteryReading(HidDevice device, int batteryPercent, bool? isCharging)
+    private static bool ShouldDiscardBatteryReading(WindowsHidDeviceInfo device, int batteryPercent, bool? isCharging)
     {
-        return device.ProductID == WirelessProductId
+        return device.ProductId == WirelessProductId
             && batteryPercent == 0
             && isCharging is not true;
     }
@@ -381,18 +336,4 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         return (PowerFailureKind.UnsupportedResponse, "unsupported response");
     }
 
-}
-
-internal static class HidDeviceExtensions
-{
-    public static string GetFriendlyName(this HidDevice device)
-    {
-        var productName = device.GetProductName();
-        if (!string.IsNullOrWhiteSpace(productName))
-        {
-            return productName;
-        }
-
-        return "Unknown Razer device";
-    }
 }
