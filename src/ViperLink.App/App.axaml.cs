@@ -57,9 +57,10 @@ public partial class App : Application
             "Battery: probing...",
             "Status: probing...",
             "Device: scanning Razer HID devices...",
-            $"Last probe: started at {DateTimeOffset.Now:HH:mm:ss}",
-            "Diagnostics: sending battery feature report",
-            "ViperLink spike\nProbing Razer battery..."));
+            $"Last updated: {DateTimeOffset.Now:HH:mm:ss}",
+            string.Empty,
+            false,
+            "ViperLink\nRefreshing battery status..."));
 
         var snapshot = await System.Threading.Tasks.Task.Run(_powerReader.Probe);
         ApplyResult(BatteryProbeResult.FromSnapshot(snapshot));
@@ -83,7 +84,9 @@ public partial class App : Application
         _deviceMenuItem.Header = result.DeviceHeader;
         _resultMenuItem.Header = result.ResultHeader;
         _diagnosticsMenuItem.Header = result.DiagnosticsHeader;
+        _diagnosticsMenuItem.IsVisible = result.ShowDiagnostics;
         _logMenuItem.Header = result.LogFilePath is null ? "Log: unavailable" : $"Log: {result.LogFilePath}";
+        _logMenuItem.IsVisible = result.ShowDiagnostics;
         _statusTrayIcon.ToolTipText = result.ToolTipText;
     }
 
@@ -105,9 +108,9 @@ public partial class App : Application
         _batteryMenuItem = CreateReadOnlyItem("Battery: probing...");
         _statusMenuItem = CreateReadOnlyItem("Status: probing...");
         _deviceMenuItem = CreateReadOnlyItem("Device: probing...");
-        _resultMenuItem = CreateReadOnlyItem("Last probe: waiting to start");
-        _diagnosticsMenuItem = CreateReadOnlyItem("Diagnostics: waiting to start");
-        _logMenuItem = CreateReadOnlyItem("Log: not written yet");
+        _resultMenuItem = CreateReadOnlyItem("Last updated: waiting to start");
+        _diagnosticsMenuItem = CreateReadOnlyItem(string.Empty);
+        _logMenuItem = CreateReadOnlyItem(string.Empty);
 
         var menu = new NativeMenu();
         menu.Add(_batteryMenuItem);
@@ -130,12 +133,14 @@ public partial class App : Application
         _statusTrayIcon = new TrayIcon
         {
             Icon = new WindowIcon(AssetLoader.Open(iconUri)),
-            ToolTipText = "ViperLink spike",
+            ToolTipText = "ViperLink",
             Menu = menu,
             IsVisible = true,
         };
 
         TrayIcon.SetIcons(this, [_statusTrayIcon]);
+        _diagnosticsMenuItem.IsVisible = false;
+        _logMenuItem.IsVisible = false;
     }
 
     private static NativeMenuItem CreateReadOnlyItem(string header)

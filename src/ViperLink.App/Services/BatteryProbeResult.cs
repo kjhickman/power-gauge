@@ -9,6 +9,7 @@ public sealed record BatteryProbeResult(
     string DeviceHeader,
     string ResultHeader,
     string DiagnosticsHeader,
+    bool ShowDiagnostics,
     string ToolTipText,
     string? LogFilePath = null)
 {
@@ -19,24 +20,26 @@ public sealed record BatteryProbeResult(
             : "Battery: unavailable";
         var statusHeader = snapshot.IsCharging switch
         {
-            true => "Status: charging",
-            false => "Status: on battery",
+            true => "Status: Charging",
+            false => "Status: On battery",
             _ => "Status: unavailable",
         };
-        var resultHeader = snapshot.IsSuccessful
-            ? $"Last probe: success at {snapshot.Timestamp:HH:mm:ss}"
-            : $"Last probe: {snapshot.ResultDetail} at {snapshot.Timestamp:HH:mm:ss}";
+        var resultHeader = $"Last updated: {snapshot.Timestamp:HH:mm:ss}";
         var tooltipDeviceName = GetTooltipDeviceName(snapshot.DeviceDisplayName);
         var toolTipText = snapshot.BatteryPercent is int percent
             ? BuildTooltip(tooltipDeviceName, percent, snapshot.IsCharging)
-            : "ViperLink spike\nBattery unavailable";
+            : "ViperLink\nBattery unavailable";
+        var diagnosticsHeader = snapshot.IsSuccessful
+            ? string.Empty
+            : TruncateHeader($"Diagnostics: {LastDiagnosticLine(snapshot.Diagnostics)}");
 
         return new BatteryProbeResult(
             batteryHeader,
             statusHeader,
             $"Device: {snapshot.DeviceDisplayName}",
             resultHeader,
-            TruncateHeader($"Diagnostics: {LastDiagnosticLine(snapshot.Diagnostics)}"),
+            diagnosticsHeader,
+            !snapshot.IsSuccessful,
             toolTipText,
             snapshot.LogFilePath);
     }
@@ -62,7 +65,7 @@ public sealed record BatteryProbeResult(
 
     private static string BuildTooltip(string deviceName, int batteryPercent, bool? isCharging)
     {
-        var tooltip = $"ViperLink spike\n{deviceName}: {batteryPercent}%";
+        var tooltip = $"ViperLink\n{deviceName}\nBattery: {batteryPercent}%";
         return isCharging switch
         {
             true => $"{tooltip}\nStatus: Charging",
