@@ -8,7 +8,7 @@ using System.Text;
 
 namespace ViperLink.App.Services;
 
-public sealed class RazerBatterySpikeService
+public sealed class WindowsViperUltimateReader : IViperPowerReader
 {
     private const int RazerVendorId = 0x1532;
     private static readonly HashSet<int> PreferredProductIds = [0x007a, 0x007b];

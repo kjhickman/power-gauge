@@ -11,7 +11,7 @@ namespace ViperLink.App;
 
 public partial class App : Application
 {
-    private readonly RazerBatterySpikeService _batteryService = new();
+    private readonly IViperPowerReader _powerReader = new WindowsViperUltimateReader();
     private TrayIcon? _statusTrayIcon;
     private NativeMenuItem? _batteryMenuItem;
     private NativeMenuItem? _deviceMenuItem;
@@ -59,7 +59,7 @@ public partial class App : Application
             "Diagnostics: sending battery feature report",
             "ViperLink spike\nProbing Razer battery..."));
 
-        var snapshot = await System.Threading.Tasks.Task.Run(_batteryService.Probe);
+        var snapshot = await System.Threading.Tasks.Task.Run(_powerReader.Probe);
         ApplyResult(BatteryProbeResult.FromSnapshot(snapshot));
     }
 
