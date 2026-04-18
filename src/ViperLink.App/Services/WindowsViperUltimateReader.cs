@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using ViperLink.App.Platform.Abstractions;
 using ViperLink.App.Platform.Windows.Hid;
+using ViperLink.App.Razer.Devices;
 using ViperLink.App;
 
 namespace ViperLink.App.Services;
@@ -13,21 +14,20 @@ namespace ViperLink.App.Services;
 public sealed class WindowsViperUltimateReader : IMousePowerReader
 {
     private const int RazerVendorId = 0x1532;
-    private const int WiredProductId = 0x007a;
-    private const int WirelessProductId = 0x007b;
-    private static readonly HashSet<int> SupportedProductIds = [WiredProductId, WirelessProductId];
     private readonly IHidDeviceEnumerator _deviceEnumerator;
     private readonly IHidFeatureTransport _featureTransport;
+    private readonly IReadOnlyList<IRazerMouseDriver> _mouseDrivers;
 
     public WindowsViperUltimateReader()
-        : this(new WindowsHidDeviceEnumerator(), new WindowsHidFeatureTransport())
+        : this(new WindowsHidDeviceEnumerator(), new WindowsHidFeatureTransport(), [new ViperUltimateDriver()])
     {
     }
 
-    public WindowsViperUltimateReader(IHidDeviceEnumerator deviceEnumerator, IHidFeatureTransport featureTransport)
+    internal WindowsViperUltimateReader(IHidDeviceEnumerator deviceEnumerator, IHidFeatureTransport featureTransport, IReadOnlyList<IRazerMouseDriver> mouseDrivers)
     {
         _deviceEnumerator = deviceEnumerator;
         _featureTransport = featureTransport;
+        _mouseDrivers = mouseDrivers;
     }
 
     public MousePowerSnapshot Probe()
@@ -82,10 +82,10 @@ public sealed class WindowsViperUltimateReader : IMousePowerReader
         var candidateDevices = PrioritizeDevices(razerDevices);
         if (candidateDevices.Count == 0)
         {
-            diagnostics.AppendLine("No supported Viper Ultimate device found.");
+            diagnostics.AppendLine("No supported Razer mouse device found.");
             return FinalizeSnapshot(new MousePowerSnapshot(
                 timestamp,
-                "no supported Viper Ultimate device",
+                "no supported Razer mouse device",
                 null,
                 null,
                 false,
@@ -96,27 +96,17 @@ public sealed class WindowsViperUltimateReader : IMousePowerReader
 
         diagnostics.AppendLine($"Prioritized {candidateDevices.Count} candidate device(s) for probing.");
 
-        foreach (var device in candidateDevices)
+        foreach (var candidate in candidateDevices)
         {
+            var device = candidate.Device;
+            var driver = candidate.Driver;
             diagnostics.AppendLine($"Trying {DescribeDevice(device)}");
 
-            if (TryReadBattery(device, diagnostics, out var batteryPercent))
+            if (driver.TryProbe(device, _featureTransport, diagnostics, out var batteryPercent, out var isCharging))
             {
-                bool? isCharging = null;
-                if (TryReadChargingStatus(device, diagnostics, out var charging))
-                {
-                    isCharging = charging;
-                }
-
-                if (ShouldDiscardBatteryReading(device, batteryPercent, isCharging))
-                {
-                    diagnostics.AppendLine("Discarding zero battery reading from wireless device while not charging.");
-                    continue;
-                }
-
                 return FinalizeSnapshot(new MousePowerSnapshot(
                     timestamp,
-                    GetDeviceDisplayName(device),
+                    driver.GetDisplayName(device),
                     batteryPercent,
                     isCharging,
                     true,
@@ -139,92 +129,25 @@ public sealed class WindowsViperUltimateReader : IMousePowerReader
             diagnostics.ToString()));
     }
 
-    private static IReadOnlyList<HidDeviceInfo> PrioritizeDevices(IReadOnlyList<HidDeviceInfo> devices)
+    private IReadOnlyList<DriverCandidate> PrioritizeDevices(IReadOnlyList<HidDeviceInfo> devices)
     {
-        return devices
-            .Where(IsLikelyWindowsTopLevelCollection)
-            .OrderBy(GetDevicePriority)
-            .ThenBy(device => device.DevicePath, StringComparer.Ordinal)
+        var candidates = new List<DriverCandidate>();
+
+        foreach (var device in devices)
+        {
+            var driver = GetBestDriver(device);
+            if (driver is null)
+            {
+                continue;
+            }
+
+            candidates.Add(new DriverCandidate(device, driver));
+        }
+
+        return candidates
+            .OrderBy(candidate => candidate.Driver.GetPriority(candidate.Device))
+            .ThenBy(candidate => candidate.Device.DevicePath, StringComparer.Ordinal)
             .ToArray();
-    }
-
-    private bool TryReadBattery(HidDeviceInfo device, StringBuilder diagnostics, out int batteryPercent)
-    {
-        batteryPercent = 0;
-
-        if (!TryReadPowerResponse(device, diagnostics, RazerProtocol.GetBatteryCommandId, "Battery", out var responsePayload))
-        {
-            return false;
-        }
-
-        batteryPercent = RazerProtocol.ParseBatteryPercent(responsePayload);
-        diagnostics.AppendLine($"Battery byte {responsePayload[9]} parsed as {batteryPercent}%.");
-        return true;
-    }
-
-    private bool TryReadChargingStatus(HidDeviceInfo device, StringBuilder diagnostics, out bool isCharging)
-    {
-        isCharging = false;
-
-        if (!TryReadPowerResponse(device, diagnostics, RazerProtocol.GetChargingStatusCommandId, "Charging", out var responsePayload))
-        {
-            return false;
-        }
-
-        isCharging = RazerProtocol.ParseChargingStatus(responsePayload);
-        diagnostics.AppendLine($"Charging byte {responsePayload[11]} parsed as {(isCharging ? "charging" : "on battery")}.");
-        return true;
-    }
-
-    private bool TryReadPowerResponse(HidDeviceInfo device, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
-    {
-        responsePayload = Array.Empty<byte>();
-
-        var reportLength = Math.Max(RazerProtocol.ReportLength, device.FeatureReportLength);
-        diagnostics.AppendLine($"Feature report length: {reportLength}");
-        if (reportLength < RazerProtocol.ReportLength)
-        {
-            diagnostics.AppendLine("Skipped: feature report length is shorter than 90 bytes.");
-            return false;
-        }
-
-        diagnostics.AppendLine("Using Windows native HID feature transport.");
-        return TryReadPowerResponseViaWindowsHid(device, reportLength, diagnostics, commandId, responseLabel, out responsePayload);
-    }
-
-    private bool TryReadPowerResponseViaWindowsHid(HidDeviceInfo device, int reportLength, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
-    {
-        responsePayload = Array.Empty<byte>();
-        var payloadOffset = reportLength == RazerProtocol.ReportLength + 1 ? 1 : 0;
-        var payloadLength = reportLength - payloadOffset;
-
-        foreach (var transactionId in RazerProtocol.CandidateTransactionIds)
-        {
-            var requestPayload = RazerProtocol.BuildRequest(payloadLength, transactionId, RazerProtocol.PowerCommandClass, commandId);
-            var request = new byte[reportLength];
-            Array.Copy(requestPayload, 0, request, payloadOffset, requestPayload.Length);
-
-            var response = new byte[reportLength];
-
-            if (!_featureTransport.TryExchangeFeatureReport(device.DevicePath, request, response, out var error))
-            {
-                diagnostics.AppendLine($"Transaction 0x{transactionId:x2} failed: {error}");
-                continue;
-            }
-
-            var payload = response.AsSpan(payloadOffset, payloadLength).ToArray();
-            diagnostics.AppendLine($"{responseLabel} transaction 0x{transactionId:x2} response: {FormatReport(payload)}");
-
-            if (!RazerProtocol.LooksLikeResponse(payload, transactionId, RazerProtocol.PowerCommandClass, commandId))
-            {
-                continue;
-            }
-
-            responsePayload = payload;
-            return true;
-        }
-
-        return false;
     }
 
     private static string DescribeDevice(HidDeviceInfo device)
@@ -233,12 +156,6 @@ public sealed class WindowsViperUltimateReader : IMousePowerReader
         return string.Create(
             CultureInfo.InvariantCulture,
             $"{name} ({device.VendorId:x4}:{device.ProductId:x4}, feature={device.FeatureReportLength}, path={device.DevicePath})");
-    }
-
-    private static string FormatReport(IReadOnlyList<byte> report)
-    {
-        var bytesToShow = report.Take(RazerProtocol.ReportLength).Select(value => value.ToString("x2", CultureInfo.InvariantCulture));
-        return string.Join(" ", bytesToShow);
     }
 
     private static MousePowerSnapshot FinalizeSnapshot(MousePowerSnapshot snapshot)
@@ -276,53 +193,6 @@ public sealed class WindowsViperUltimateReader : IMousePowerReader
         }
     }
 
-    private static int GetDevicePriority(HidDeviceInfo device)
-    {
-        return device.ProductId switch
-        {
-            WiredProductId => 0,
-            WirelessProductId => 1,
-            _ => 2,
-        };
-    }
-
-    private static string GetDeviceDisplayName(HidDeviceInfo device)
-    {
-        return device.ProductId switch
-        {
-            WiredProductId => "Razer Viper Ultimate (Wired)",
-            WirelessProductId => "Razer Viper Ultimate (Wireless)",
-            _ => device.ProductName,
-        };
-    }
-
-    private static bool IsLikelyWindowsTopLevelCollection(HidDeviceInfo device)
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            return false;
-        }
-
-        if (device.FeatureReportLength < RazerProtocol.ReportLength)
-        {
-            return false;
-        }
-
-        if (!SupportedProductIds.Contains(device.ProductId))
-        {
-            return false;
-        }
-
-        return !device.DevicePath.Contains("\\kbd", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool ShouldDiscardBatteryReading(HidDeviceInfo device, int batteryPercent, bool? isCharging)
-    {
-        return device.ProductId == WirelessProductId
-            && batteryPercent == 0
-            && isCharging is not true;
-    }
-
     private static (PowerFailureKind FailureKind, string ResultDetail) ClassifyProbeFailure(string diagnostics)
     {
         if (diagnostics.Contains("Discarding zero battery reading from wireless device while not charging.", StringComparison.OrdinalIgnoreCase))
@@ -350,5 +220,15 @@ public sealed class WindowsViperUltimateReader : IMousePowerReader
 
         return (PowerFailureKind.UnsupportedResponse, "unsupported response");
     }
+
+    private IRazerMouseDriver? GetBestDriver(HidDeviceInfo device)
+    {
+        return _mouseDrivers
+            .Where(driver => driver.Supports(device))
+            .OrderBy(driver => driver.GetPriority(device))
+            .FirstOrDefault();
+    }
+
+    private sealed record DriverCandidate(HidDeviceInfo Device, IRazerMouseDriver Driver);
 
 }
