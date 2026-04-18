@@ -12,6 +12,7 @@ namespace ViperLink.App;
 public partial class App : Application
 {
     private readonly IViperPowerReader _powerReader = new WindowsViperUltimateReader();
+    private MousePowerSnapshot? _lastSuccessfulSnapshot;
     private TrayIcon? _statusTrayIcon;
     private NativeMenuItem? _batteryMenuItem;
     private NativeMenuItem? _statusMenuItem;
@@ -44,7 +45,7 @@ public partial class App : Application
     {
         _refreshTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMinutes(2),
+            Interval = TimeSpan.FromSeconds(30),
         };
 
         _refreshTimer.Tick += (_, _) => RefreshTrayState();
@@ -53,17 +54,25 @@ public partial class App : Application
 
     private async void RefreshTrayState()
     {
-        ApplyResult(new BatteryProbeResult(
-            "Battery: probing...",
-            "Status: probing...",
-            "Device: scanning Razer HID devices...",
-            $"Last updated: {DateTimeOffset.Now:HH:mm:ss}",
-            string.Empty,
-            false,
-            "ViperLink\nRefreshing battery status..."));
+        if (_lastSuccessfulSnapshot is null)
+        {
+            ApplyResult(new BatteryProbeResult(
+                "Battery: probing...",
+                "Status: probing...",
+                "Device: scanning Razer HID devices...",
+                $"Last updated: {DateTimeOffset.Now:HH:mm:ss}",
+                string.Empty,
+                false,
+                "ViperLink\nRefreshing battery status..."));
+        }
 
         var snapshot = await System.Threading.Tasks.Task.Run(_powerReader.Probe);
-        ApplyResult(BatteryProbeResult.FromSnapshot(snapshot));
+        if (snapshot.IsSuccessful)
+        {
+            _lastSuccessfulSnapshot = snapshot;
+        }
+
+        ApplyResult(BatteryProbeResult.FromSnapshot(snapshot, _lastSuccessfulSnapshot));
     }
 
     private void ApplyResult(BatteryProbeResult result)

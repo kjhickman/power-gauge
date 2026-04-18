@@ -39,6 +39,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
                 null,
                 null,
                 false,
+                PowerFailureKind.EnumerationFailed,
                 "enumeration failed",
                 diagnostics.ToString()));
         }
@@ -58,6 +59,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
                 null,
                 null,
                 false,
+                PowerFailureKind.DeviceUnavailable,
                 "no devices",
                 diagnostics.ToString()));
         }
@@ -72,6 +74,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
                 null,
                 null,
                 false,
+                PowerFailureKind.DeviceUnavailable,
                 "no supported device",
                 diagnostics.ToString()));
         }
@@ -90,16 +93,25 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
                     isCharging = charging;
                 }
 
+                if (ShouldDiscardBatteryReading(device, batteryPercent, isCharging))
+                {
+                    diagnostics.AppendLine("Discarding zero battery reading from wireless device while not charging.");
+                    continue;
+                }
+
                 return FinalizeSnapshot(new MousePowerSnapshot(
                     timestamp,
                     GetDeviceDisplayName(device),
                     batteryPercent,
                     isCharging,
                     true,
+                    PowerFailureKind.None,
                     "success",
                     diagnostics.ToString()));
             }
         }
+
+        var (failureKind, resultDetail) = ClassifyProbeFailure(diagnostics.ToString());
 
         return FinalizeSnapshot(new MousePowerSnapshot(
             timestamp,
@@ -107,7 +119,8 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
             null,
             null,
             false,
-            "no battery response",
+            failureKind,
+            resultDetail,
             diagnostics.ToString()));
     }
 
@@ -278,6 +291,7 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
             builder.AppendLine($"BatteryPercent: {(snapshot.BatteryPercent is int battery ? battery : "n/a")}");
             builder.AppendLine($"IsCharging: {(snapshot.IsCharging is bool isCharging ? isCharging : "n/a")}");
             builder.AppendLine($"IsSuccessful: {snapshot.IsSuccessful}");
+            builder.AppendLine($"FailureKind: {snapshot.FailureKind}");
             builder.AppendLine($"ResultDetail: {snapshot.ResultDetail}");
 
             builder.AppendLine("Diagnostics:");
@@ -329,6 +343,41 @@ public sealed class WindowsViperUltimateReader : IViperPowerReader
         }
 
         return !device.DevicePath.Contains("\\kbd", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ShouldDiscardBatteryReading(HidDevice device, int batteryPercent, bool? isCharging)
+    {
+        return device.ProductID == WirelessProductId
+            && batteryPercent == 0
+            && isCharging is not true;
+    }
+
+    private static (PowerFailureKind FailureKind, string ResultDetail) ClassifyProbeFailure(string diagnostics)
+    {
+        if (diagnostics.Contains("Discarding zero battery reading from wireless device while not charging.", StringComparison.OrdinalIgnoreCase))
+        {
+            return (PowerFailureKind.DeviceSleeping, "device sleeping");
+        }
+
+        if (diagnostics.Contains("Only placeholder response received.", StringComparison.OrdinalIgnoreCase))
+        {
+            return (PowerFailureKind.DeviceSleeping, "device sleeping");
+        }
+
+        if (diagnostics.Contains("timed out", StringComparison.OrdinalIgnoreCase)
+            || diagnostics.Contains("timeout", StringComparison.OrdinalIgnoreCase))
+        {
+            return (PowerFailureKind.ProtocolTimeout, "probe timed out");
+        }
+
+        if (diagnostics.Contains("Open failed.", StringComparison.OrdinalIgnoreCase)
+            || diagnostics.Contains("CreateFile failed", StringComparison.OrdinalIgnoreCase)
+            || diagnostics.Contains("No Razer HID devices found.", StringComparison.OrdinalIgnoreCase))
+        {
+            return (PowerFailureKind.DeviceUnavailable, "device unavailable");
+        }
+
+        return (PowerFailureKind.UnsupportedResponse, "unsupported response");
     }
 
 }

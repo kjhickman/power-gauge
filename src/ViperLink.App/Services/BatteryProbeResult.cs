@@ -13,22 +13,18 @@ public sealed record BatteryProbeResult(
     string ToolTipText,
     string? LogFilePath = null)
 {
-    public static BatteryProbeResult FromSnapshot(MousePowerSnapshot snapshot)
+    public static BatteryProbeResult FromSnapshot(MousePowerSnapshot snapshot, MousePowerSnapshot? fallbackSnapshot = null)
     {
-        var batteryHeader = snapshot.BatteryPercent is int batteryPercent
+        var displaySnapshot = snapshot.IsSuccessful ? snapshot : fallbackSnapshot ?? snapshot;
+        var batteryHeader = displaySnapshot.BatteryPercent is int batteryPercent
             ? $"Battery: {batteryPercent}%"
             : "Battery: unavailable";
-        var statusHeader = snapshot.IsCharging switch
-        {
-            true => "Status: Charging",
-            false => "Status: On battery",
-            _ => "Status: unavailable",
-        };
-        var resultHeader = $"Last updated: {snapshot.Timestamp:HH:mm:ss}";
-        var tooltipDeviceName = GetTooltipDeviceName(snapshot.DeviceDisplayName);
-        var toolTipText = snapshot.BatteryPercent is int percent
-            ? BuildTooltip(tooltipDeviceName, percent, snapshot.IsCharging)
-            : "ViperLink\nBattery unavailable";
+        var statusHeader = BuildStatusHeader(snapshot, displaySnapshot, fallbackSnapshot is not null && !snapshot.IsSuccessful);
+        var resultHeader = BuildResultHeader(snapshot, displaySnapshot, fallbackSnapshot is not null && !snapshot.IsSuccessful);
+        var tooltipDeviceName = GetTooltipDeviceName(displaySnapshot.DeviceDisplayName);
+        var toolTipText = displaySnapshot.BatteryPercent is int percent
+            ? BuildTooltip(tooltipDeviceName, percent, statusHeader)
+            : BuildUnavailableTooltip(statusHeader);
         var diagnosticsHeader = snapshot.IsSuccessful
             ? string.Empty
             : TruncateHeader($"Diagnostics: {LastDiagnosticLine(snapshot.Diagnostics)}");
@@ -36,7 +32,7 @@ public sealed record BatteryProbeResult(
         return new BatteryProbeResult(
             batteryHeader,
             statusHeader,
-            $"Device: {snapshot.DeviceDisplayName}",
+            $"Device: {displaySnapshot.DeviceDisplayName}",
             resultHeader,
             diagnosticsHeader,
             !snapshot.IsSuccessful,
@@ -63,14 +59,64 @@ public sealed record BatteryProbeResult(
         return detailsStart > 0 ? deviceDisplayName[..detailsStart] : deviceDisplayName;
     }
 
-    private static string BuildTooltip(string deviceName, int batteryPercent, bool? isCharging)
+    private static string BuildTooltip(string deviceName, int batteryPercent, string statusHeader)
     {
         var tooltip = $"ViperLink\n{deviceName}\nBattery: {batteryPercent}%";
-        return isCharging switch
+        return $"{tooltip}\n{statusHeader}";
+    }
+
+    private static string BuildUnavailableTooltip(string statusHeader)
+    {
+        return $"ViperLink\nBattery unavailable\n{statusHeader}";
+    }
+
+    private static string BuildStatusHeader(MousePowerSnapshot snapshot, MousePowerSnapshot displaySnapshot, bool isUsingFallback)
+    {
+        if (snapshot.IsSuccessful)
         {
-            true => $"{tooltip}\nStatus: Charging",
-            false => $"{tooltip}\nStatus: On battery",
-            _ => tooltip,
+            return displaySnapshot.IsCharging switch
+            {
+                true => "Status: Charging",
+                false => "Status: On battery",
+                _ => "Status: unavailable",
+            };
+        }
+
+        return snapshot.FailureKind switch
+        {
+            PowerFailureKind.DeviceSleeping => isUsingFallback
+                ? "Status: Sleeping (showing last known reading)"
+                : "Status: Sleeping",
+            PowerFailureKind.DeviceUnavailable => isUsingFallback
+                ? "Status: Device unavailable (showing last known reading)"
+                : "Status: Device unavailable",
+            PowerFailureKind.ProtocolTimeout => isUsingFallback
+                ? "Status: Timed out (showing last known reading)"
+                : "Status: Timed out",
+            PowerFailureKind.UnsupportedResponse => isUsingFallback
+                ? "Status: Unable to refresh (showing last known reading)"
+                : "Status: Unable to refresh",
+            PowerFailureKind.EnumerationFailed => isUsingFallback
+                ? "Status: HID error (showing last known reading)"
+                : "Status: HID error",
+            _ => isUsingFallback
+                ? "Status: Waiting for update (showing last known reading)"
+                : "Status: Waiting for update",
         };
+    }
+
+    private static string BuildResultHeader(MousePowerSnapshot snapshot, MousePowerSnapshot displaySnapshot, bool isUsingFallback)
+    {
+        if (snapshot.IsSuccessful)
+        {
+            return $"Last updated: {snapshot.Timestamp:HH:mm:ss}";
+        }
+
+        if (isUsingFallback)
+        {
+            return $"Last updated: {displaySnapshot.Timestamp:HH:mm:ss} (refresh failed at {snapshot.Timestamp:HH:mm:ss})";
+        }
+
+        return $"Last attempt: {snapshot.Timestamp:HH:mm:ss}";
     }
 }
