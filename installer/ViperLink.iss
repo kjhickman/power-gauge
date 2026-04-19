@@ -48,3 +48,28 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent unchecked
+
+[Code]
+var
+  StartupTaskInitialized: Boolean;
+
+procedure CurPageChanged(CurPageID: Integer);
+var
+  ExistingRunValue: string;
+begin
+  if StartupTaskInitialized or (CurPageID <> wpSelectTasks) then
+  begin
+    exit;
+  end;
+
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', '{#MyAppName}', ExistingRunValue) then
+  begin
+    WizardSelectTasks('startup');
+  end
+  else
+  begin
+    WizardSelectTasks('!startup');
+  end;
+
+  StartupTaskInitialized := True;
+end;
