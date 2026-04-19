@@ -53,7 +53,7 @@ jobs:
       - name: Build release assets
         shell: pwsh
         run: |
-          ./scripts/Build-PowerGaugeRelease.ps1 -Version "${{ steps.version.outputs.value }}"
+          ./scripts/Build-PowerGaugeWindowsRelease.ps1 -Version "${{ steps.version.outputs.value }}"
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v7
@@ -97,26 +97,26 @@ jobs:
 
       - name: Derive release version
         id: version
-        shell: bash
+        shell: pwsh
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            version="${{ github.event.inputs.version }}"
-          else
-            tag="${{ github.event.release.tag_name }}"
-            if [[ -z "$tag" ]]; then
-              echo "Release tag name is empty." >&2
-              exit 1
-            fi
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ github.event.inputs.version }}"
+          }
+          else {
+            $tag = "${{ github.event.release.tag_name }}"
+            if ([string]::IsNullOrWhiteSpace($tag)) {
+              throw "Release tag name is empty."
+            }
 
-            version="${tag#v}"
-          fi
+            $version = $tag.StartsWith("v") ? $tag.Substring(1) : $tag
+          }
 
-          echo "value=$version" >> "$GITHUB_OUTPUT"
+          "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Build release assets
-        shell: bash
+        shell: pwsh
         run: |
-          zsh ./scripts/build-macos-release.sh "${{ steps.version.outputs.value }}"
+          ./scripts/Build-PowerGaugeMacOsRelease.ps1 -Version "${{ steps.version.outputs.value }}"
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v7
