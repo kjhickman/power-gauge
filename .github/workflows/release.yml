@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to build (example: 0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+
+      - name: Derive release version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ github.event.inputs.version }}"
+          }
+          else {
+            $tag = "${{ github.event.release.tag_name }}"
+            if ([string]::IsNullOrWhiteSpace($tag)) {
+              throw "Release tag name is empty."
+            }
+
+            $version = $tag.StartsWith("v") ? $tag.Substring(1) : $tag
+          }
+
+          "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Build release assets
+        shell: pwsh
+        run: |
+          ./scripts/Build-WindowsRelease.ps1 -Version "${{ steps.version.outputs.value }}"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ViperLink-windows-x64-${{ steps.version.outputs.value }}
+          path: |
+            artifacts/release/ViperLink-windows-x64-${{ steps.version.outputs.value }}.zip
+            artifacts/release/ViperLink-windows-x64-setup-${{ steps.version.outputs.value }}.exe
+
+      - name: Upload portable zip to release
+        if: github.event_name == 'release'
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.event.release.tag_name }}
+          file: artifacts/release/ViperLink-windows-x64-${{ steps.version.outputs.value }}.zip
+          asset_name: ViperLink-windows-x64-${{ steps.version.outputs.value }}.zip
+          overwrite: true
+
+      - name: Upload installer to release
+        if: github.event_name == 'release'
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.event.release.tag_name }}
+          file: artifacts/release/ViperLink-windows-x64-setup-${{ steps.version.outputs.value }}.exe
+          asset_name: ViperLink-windows-x64-setup-${{ steps.version.outputs.value }}.exe
+          overwrite: true

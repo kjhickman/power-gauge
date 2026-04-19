@@ -7,6 +7,9 @@
 #ifndef MyPublishDir
   #define MyPublishDir "..\artifacts\publish\windows-nativeaot"
 #endif
+#ifndef MySetupIconFile
+  #define MySetupIconFile "..\src\ViperLink.App\Assets\avalonia-logo.ico"
+#endif
 
 [Setup]
 AppId={#MyAppId}
@@ -29,7 +32,7 @@ OutputDir=..\artifacts\release
 OutputBaseFilename=ViperLink-windows-x64-setup-{#MyAppVersion}
 UsePreviousAppDir=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
-SetupIconFile={#MyPublishDir}\{#MyAppExeName}
+SetupIconFile={#MySetupIconFile}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
