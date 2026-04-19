@@ -4,6 +4,8 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using System;
 using PowerGauge.Application;
+using PowerGauge.Platform;
+using PowerGauge.Platform.MacOS;
 using PowerGauge.Platform.Windows;
 using PowerGauge.Tray;
 
@@ -11,7 +13,7 @@ namespace PowerGauge;
 
 public partial class App : Avalonia.Application
 {
-    private readonly PowerPollingController _pollingController = new(new WindowsRazerMouseReader());
+    private readonly PowerPollingController _pollingController = new(CreatePowerReader());
     private TrayPresenter? _trayPresenter;
     private DispatcherTimer? _refreshTimer;
 
@@ -67,5 +69,20 @@ public partial class App : Avalonia.Application
         {
             desktop.Shutdown();
         }
+    }
+
+    private static IMousePowerReader CreatePowerReader()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return new WindowsRazerMouseReader();
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return new MacOsRazerMouseReader();
+        }
+
+        return new UnsupportedMousePowerReader();
     }
 }

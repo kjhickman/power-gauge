@@ -21,4 +21,5 @@ public enum PowerFailureKind
     ProtocolTimeout,
     UnsupportedResponse,
     EnumerationFailed,
+    PermissionRequired,
 }

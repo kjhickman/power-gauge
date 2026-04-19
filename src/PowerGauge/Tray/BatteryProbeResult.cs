@@ -96,6 +96,9 @@ public sealed record BatteryProbeResult(
             PowerFailureKind.ProtocolTimeout => isUsingFallback
                 ? "Status: Timed out (showing last known reading)"
                 : "Status: Timed out",
+            PowerFailureKind.PermissionRequired => isUsingFallback
+                ? "Status: Input Monitoring required (showing last known reading)"
+                : "Status: Input Monitoring required",
             PowerFailureKind.UnsupportedResponse => isUsingFallback
                 ? "Status: Unable to refresh (showing last known reading)"
                 : "Status: Unable to refresh",

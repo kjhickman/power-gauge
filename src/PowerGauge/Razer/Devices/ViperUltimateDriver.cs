@@ -82,7 +82,7 @@ internal sealed class ViperUltimateDriver : IRazerMouseDriver
             return false;
         }
 
-        diagnostics.AppendLine("Using Windows native HID feature transport.");
+        diagnostics.AppendLine("Using native HID feature transport.");
         var payloadOffset = reportLength == RazerProtocol.ReportLength + 1 ? 1 : 0;
         var payloadLength = reportLength - payloadOffset;
 
