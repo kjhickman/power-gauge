@@ -9,6 +9,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = Join-Path $repoRoot "src/PowerGauge/PowerGauge.csproj"
 $publishProfile = "WindowsNativeAot"
 $publishDir = Join-Path $repoRoot "artifacts/publish/windows-nativeaot"
+$packageDir = Join-Path $repoRoot "artifacts/package/windows-nativeaot"
 $releaseDir = Join-Path $repoRoot "artifacts/release"
 $portableZip = Join-Path $releaseDir "PowerGauge-windows-x64-$Version.zip"
 $installerScript = Join-Path $repoRoot "installer/PowerGauge.iss"
@@ -31,6 +32,26 @@ if (-not (Test-Path $publishDir)) {
     throw "Publish directory not found: $publishDir"
 }
 
+if (Test-Path $packageDir) {
+    Remove-Item $packageDir -Recurse -Force
+}
+
+New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+
+Write-Host "Preparing package contents..."
+$publishFiles = Get-ChildItem -Path $publishDir -Recurse -File | Where-Object { $_.Extension -ne '.pdb' }
+foreach ($file in $publishFiles) {
+    $relativePath = [System.IO.Path]::GetRelativePath($publishDir, $file.FullName)
+    $destinationPath = Join-Path $packageDir $relativePath
+    $destinationDirectory = Split-Path -Parent $destinationPath
+
+    if (-not (Test-Path $destinationDirectory)) {
+        New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+    }
+
+    Copy-Item $file.FullName -Destination $destinationPath
+}
+
 New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 
 if (Test-Path $portableZip) {
@@ -38,7 +59,7 @@ if (Test-Path $portableZip) {
 }
 
 Write-Host "Creating portable zip..."
-Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $portableZip -CompressionLevel Optimal
+Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $portableZip -CompressionLevel Optimal
 
 $isccCandidates = @(
     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
@@ -51,7 +72,7 @@ if (-not $isccPath) {
 }
 
 Write-Host "Building installer..."
-& $isccPath "/DMyAppVersion=$Version" "/DMyPublishDir=$publishDir" "/DMySetupIconFile=$setupIconFile" $installerScript
+& $isccPath "/DMyAppVersion=$Version" "/DMyPublishDir=$packageDir" "/DMySetupIconFile=$setupIconFile" $installerScript
 if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
 }
