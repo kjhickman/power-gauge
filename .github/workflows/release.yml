@@ -53,15 +53,15 @@ jobs:
       - name: Build release assets
         shell: pwsh
         run: |
-          ./scripts/Build-WindowsRelease.ps1 -Version "${{ steps.version.outputs.value }}"
+          ./scripts/Build-PowerGaugeRelease.ps1 -Version "${{ steps.version.outputs.value }}"
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: ViperLink-windows-x64-${{ steps.version.outputs.value }}
+          name: PowerGauge-windows-x64-${{ steps.version.outputs.value }}
           path: |
-            artifacts/release/ViperLink-windows-x64-${{ steps.version.outputs.value }}.zip
-            artifacts/release/ViperLink-windows-x64-setup-${{ steps.version.outputs.value }}.exe
+            artifacts/release/PowerGauge-windows-x64-${{ steps.version.outputs.value }}.zip
+            artifacts/release/PowerGauge-windows-x64-setup-${{ steps.version.outputs.value }}.exe
 
       - name: Upload portable zip to release
         if: github.event_name == 'release'
@@ -69,8 +69,8 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.event.release.tag_name }}
-          file: artifacts/release/ViperLink-windows-x64-${{ steps.version.outputs.value }}.zip
-          asset_name: ViperLink-windows-x64-${{ steps.version.outputs.value }}.zip
+          file: artifacts/release/PowerGauge-windows-x64-${{ steps.version.outputs.value }}.zip
+          asset_name: PowerGauge-windows-x64-${{ steps.version.outputs.value }}.zip
           overwrite: true
 
       - name: Upload installer to release
@@ -79,6 +79,6 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.event.release.tag_name }}
-          file: artifacts/release/ViperLink-windows-x64-setup-${{ steps.version.outputs.value }}.exe
-          asset_name: ViperLink-windows-x64-setup-${{ steps.version.outputs.value }}.exe
+          file: artifacts/release/PowerGauge-windows-x64-setup-${{ steps.version.outputs.value }}.exe
+          asset_name: PowerGauge-windows-x64-setup-${{ steps.version.outputs.value }}.exe
           overwrite: true

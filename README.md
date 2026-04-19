@@ -1,4 +1,4 @@
-# ViperLink
+# PowerGauge
 
 System tray utility for showing the battery % for the `Razer Viper Ultimate` mouse.
 
