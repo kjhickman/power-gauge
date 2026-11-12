@@ -7,6 +7,8 @@ public static class AppIdentity
     public const string ProductName = "PowerGauge";
     public const string ExecutableName = "PowerGauge";
     public const string LogDirectoryName = "PowerGauge";
+    public const string GitHubRepository = "kjhickman/power-gauge";
+    public const string GitHubRepositoryUrl = "https://github.com/kjhickman/power-gauge";
 
     public static string DisplayVersion
     {

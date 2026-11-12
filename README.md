@@ -12,6 +12,7 @@ System tray utility for showing battery % for supported Razer wireless mice.
 - Supports Windows and macOS
 - Shows battery level, charging status, and connection status
 - When multiple supported mice are detected, the tray icon displays the lowest battery % while the tray menu lists all detected devices
+- Built-in update checks against GitHub Releases with one-click SHA-256-verified self-update
 
 ## Limitations
 

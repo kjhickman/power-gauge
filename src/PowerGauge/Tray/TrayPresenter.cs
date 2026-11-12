@@ -1,10 +1,13 @@
+using System;
 using System.Collections.Generic;
 using Avalonia.Controls;
+using PowerGauge.Updates;
 
 namespace PowerGauge.Tray;
 
 public sealed class TrayPresenter
 {
+    private const int MaxTooltipLength = 127;
     private readonly TrayIconRenderer _trayIconRenderer = new();
     private readonly TrayIcon _trayIcon;
     private readonly NativeMenu _menu;
@@ -13,8 +16,11 @@ public sealed class TrayPresenter
     private readonly NativeMenuItem _versionMenuItem;
     private readonly NativeMenuItem _diagnosticsMenuItem;
     private readonly NativeMenuItem _logMenuItem;
+    private readonly NativeMenuItem _updateMenuItem;
+    private string _baseToolTipText = AppIdentity.ProductName;
+    private string? _updateTooltipNotice;
 
-    public TrayPresenter(System.Action refreshNow, System.Action quit)
+    public TrayPresenter(Action refreshNow, Action updateAction, Action quit)
     {
         _resultMenuItem = CreateReadOnlyItem("Last updated: waiting to start");
         _versionMenuItem = CreateReadOnlyItem($"Version: {AppIdentity.DisplayVersion}");
@@ -32,6 +38,10 @@ public sealed class TrayPresenter
         var refreshMenuItem = new NativeMenuItem("Refresh now");
         refreshMenuItem.Click += (_, _) => refreshNow();
         _menu.Add(refreshMenuItem);
+
+        _updateMenuItem = new NativeMenuItem("Check for updates");
+        _updateMenuItem.Click += (_, _) => updateAction();
+        _menu.Add(_updateMenuItem);
 
         var quitMenuItem = new NativeMenuItem("Quit");
         quitMenuItem.Click += (_, _) => quit();
@@ -60,7 +70,28 @@ public sealed class TrayPresenter
         _logMenuItem.Header = result.LogFilePath is null ? "Log: unavailable" : $"Log: {result.LogFilePath}";
         _logMenuItem.IsVisible = result.ShowDiagnostics;
         _trayIcon.Icon = _trayIconRenderer.Render(result.IconBatteryPercent);
-        _trayIcon.ToolTipText = result.ToolTipText;
+        _baseToolTipText = result.ToolTipText;
+        UpdateToolTipText();
+    }
+
+    public void ApplyUpdateStatus(TrayUpdateStatus updateStatus)
+    {
+        _versionMenuItem.Header = updateStatus.VersionHeader;
+        _updateMenuItem.Header = updateStatus.ActionHeader;
+        _updateMenuItem.IsEnabled = updateStatus.IsActionEnabled;
+        _updateTooltipNotice = updateStatus.TooltipNotice;
+        UpdateToolTipText();
+    }
+
+    private void UpdateToolTipText()
+    {
+        var combined = string.IsNullOrWhiteSpace(_updateTooltipNotice)
+            ? _baseToolTipText
+            : $"{_baseToolTipText}\n{_updateTooltipNotice}";
+
+        _trayIcon.ToolTipText = combined.Length <= MaxTooltipLength
+            ? combined
+            : string.Concat(combined.AsSpan(0, MaxTooltipLength - 3), "...");
     }
 
     private void SyncDeviceSections(IReadOnlyList<DeviceBatteryDisplay> sections)
