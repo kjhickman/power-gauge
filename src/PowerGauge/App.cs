@@ -1,6 +1,5 @@
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
 using System;
 using System.Collections.Generic;
@@ -28,7 +27,7 @@ public sealed class App : Avalonia.Application
     public override void Initialize()
     {
         Name = AppIdentity.ProductName;
-        Styles.Add(new FluentTheme());
+        Resources = TrayMenuTheme.CreateResources();
     }
 
     public override void OnFrameworkInitializationCompleted()
