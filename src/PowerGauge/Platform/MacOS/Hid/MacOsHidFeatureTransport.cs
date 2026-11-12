@@ -85,12 +85,36 @@ public sealed class MacOsHidFeatureTransport : IHidFeatureTransport
                     continue;
                 }
 
+                if (IsPendingOrUnrelatedResponse(request, response))
+                {
+                    continue;
+                }
+
                 return true;
             }
         }
 
         error = "No feature report response received.";
         return false;
+    }
+
+    private static bool IsPendingOrUnrelatedResponse(byte[] request, byte[] response)
+    {
+        var offset = request.Length == 91 ? 1 : 0;
+        if (request.Length != response.Length || response.Length < offset + 10)
+        {
+            return false;
+        }
+
+        if (response[offset + 6] != request[offset + 6]
+            || response[offset + 7] != request[offset + 7])
+        {
+            return true;
+        }
+
+        var status = response[offset];
+        return status == 0x01
+            || (status == 0x00 && response[offset + 8] == 0x00 && response[offset + 9] == 0x00);
     }
 
     private static bool TryFindDevice(ulong registryEntryId, out IntPtr manager, out IntPtr deviceSet, out IntPtr matchedDevice, out string error)

@@ -7,7 +7,7 @@ namespace PowerGauge.Diagnostics;
 
 public sealed class ProbeLogWriter
 {
-    public string? Write(MousePowerSnapshot snapshot)
+    public string? Write(PowerProbeReport report)
     {
         try
         {
@@ -18,16 +18,26 @@ public sealed class ProbeLogWriter
 
             var logPath = Path.Combine(logDirectory, "probe.log");
             var builder = new StringBuilder();
-            builder.AppendLine($"Timestamp: {snapshot.Timestamp:O}");
-            builder.AppendLine($"DeviceDisplayName: {snapshot.DeviceDisplayName}");
-            builder.AppendLine($"BatteryPercent: {(snapshot.BatteryPercent is int battery ? battery : "n/a")}");
-            builder.AppendLine($"IsCharging: {(snapshot.IsCharging is bool isCharging ? isCharging : "n/a")}");
-            builder.AppendLine($"IsSuccessful: {snapshot.IsSuccessful}");
-            builder.AppendLine($"FailureKind: {snapshot.FailureKind}");
-            builder.AppendLine($"ResultDetail: {snapshot.ResultDetail}");
+            builder.AppendLine($"Timestamp: {report.Timestamp:O}");
+            builder.AppendLine($"DetectedDevices: {report.Devices.Count}");
+            builder.AppendLine($"FailureKind: {report.FailureKind}");
+            builder.AppendLine($"ResultDetail: {report.ResultDetail}");
 
+            foreach (var device in report.Devices)
+            {
+                builder.AppendLine("---");
+                builder.AppendLine($"DeviceKey: {device.DeviceKey}");
+                builder.AppendLine($"DeviceDisplayName: {device.DeviceDisplayName}");
+                builder.AppendLine($"BatteryPercent: {(device.BatteryPercent is int battery ? battery : "n/a")}");
+                builder.AppendLine($"IsCharging: {(device.IsCharging is bool isCharging ? isCharging : "n/a")}");
+                builder.AppendLine($"IsSuccessful: {device.IsSuccessful}");
+                builder.AppendLine($"FailureKind: {device.FailureKind}");
+                builder.AppendLine($"ResultDetail: {device.ResultDetail}");
+            }
+
+            builder.AppendLine("---");
             builder.AppendLine("Diagnostics:");
-            builder.AppendLine(snapshot.Diagnostics);
+            builder.AppendLine(report.Diagnostics);
             File.WriteAllText(logPath, builder.ToString());
             return logPath;
         }

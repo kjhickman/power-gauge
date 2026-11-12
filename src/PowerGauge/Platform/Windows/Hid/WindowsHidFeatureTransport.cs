@@ -38,52 +38,91 @@ public sealed class WindowsHidFeatureTransport : IHidFeatureTransport
             return false;
         }
 
-        if (!HidD_SetFeature(handle, request, request.Length))
-        {
-            error = $"HidD_SetFeature failed: {new Win32Exception(Marshal.GetLastWin32Error()).Message}";
-            return false;
-        }
+        const int maxAttempts = 4;
+        ReadOnlySpan<int> pollDelaysMs = [15, 20, 30, 45];
 
-        var delays = new[] { 35, 50, 70 };
-        foreach (var delayMs in delays)
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
-            Thread.Sleep(delayMs);
-
-            Array.Clear(response);
-            response[0] = request[0];
-            if (!HidD_GetFeature(handle, response, response.Length))
+            if (!HidD_SetFeature(handle, request, request.Length))
             {
-                error = $"HidD_GetFeature failed after {delayMs}ms: {new Win32Exception(Marshal.GetLastWin32Error()).Message}";
-                continue;
+                error = $"HidD_SetFeature failed: {new Win32Exception(Marshal.GetLastWin32Error()).Message}";
+                return false;
             }
 
-            if (!LooksLikePlaceholderResponse(request, response))
+            var overwrittenByOtherCommand = false;
+            foreach (var delayMs in pollDelaysMs)
             {
+                Thread.Sleep(delayMs);
+
+                Array.Clear(response);
+                response[0] = request[0];
+                if (!HidD_GetFeature(handle, response, response.Length))
+                {
+                    error = $"HidD_GetFeature failed after {delayMs}ms: {new Win32Exception(Marshal.GetLastWin32Error()).Message}";
+                    continue;
+                }
+
+                if (IsPendingSameCommand(request, response))
+                {
+                    continue;
+                }
+
+                if (IsDifferentCommandResponse(request, response))
+                {
+                    overwrittenByOtherCommand = true;
+                    break;
+                }
+
                 return true;
             }
+
+            if (!overwrittenByOtherCommand)
+            {
+                error = "Only placeholder response received.";
+                return false;
+            }
         }
 
-        error = "Only placeholder response received.";
+        error = "Feature report was overwritten by concurrent device traffic.";
         return false;
     }
 
-    private static bool LooksLikePlaceholderResponse(byte[] request, byte[] response)
+    private static bool IsPendingSameCommand(byte[] request, byte[] response)
     {
-        if (request.Length != response.Length || response.Length < 10)
+        var offset = request.Length == 91 ? 1 : 0;
+        if (request.Length != response.Length || response.Length < offset + 10)
         {
             return false;
         }
 
-        if (response[1] != request[1])
+        if (response[offset + 1] != request[offset + 1]
+            || response[offset + 6] != request[offset + 6]
+            || response[offset + 7] != request[offset + 7])
         {
             return false;
         }
 
-        return response[5] == request[5]
-            && response[6] == request[6]
-            && response[7] == request[7]
-            && response[8] == 0x00
-            && response[9] == 0x00;
+        var status = response[offset];
+        if (status == 0x01)
+        {
+            return true;
+        }
+
+        return status == 0x00
+            && response[offset + 8] == 0x00
+            && response[offset + 9] == 0x00;
+    }
+
+    private static bool IsDifferentCommandResponse(byte[] request, byte[] response)
+    {
+        var offset = request.Length == 91 ? 1 : 0;
+        if (request.Length != response.Length || response.Length < offset + 8)
+        {
+            return false;
+        }
+
+        return response[offset + 6] != request[offset + 6]
+            || response[offset + 7] != request[offset + 7];
     }
 
     [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]

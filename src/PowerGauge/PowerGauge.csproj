@@ -3,7 +3,7 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>PowerGauge</AssemblyName>
     <AssemblyTitle>PowerGauge</AssemblyTitle>
-    <Description>Tray battery monitor for the Razer Viper Ultimate.</Description>
+    <Description>Tray battery monitor for supported Razer wireless mice.</Description>
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <ApplicationManifest Condition="'$(OS)' == 'Windows_NT' or $([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win'))">app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>

@@ -9,7 +9,7 @@ namespace PowerGauge.Platform.Windows;
 internal sealed class WindowsRazerMouseReader : RazerMouseReader
 {
     public WindowsRazerMouseReader()
-        : this(new WindowsHidDeviceEnumerator(), new WindowsHidFeatureTransport(), [new ViperUltimateDriver()], new ProbeLogWriter())
+        : this(new WindowsHidDeviceEnumerator(), new WindowsHidFeatureTransport(), CreateDefaultDrivers(), new ProbeLogWriter())
     {
     }
 

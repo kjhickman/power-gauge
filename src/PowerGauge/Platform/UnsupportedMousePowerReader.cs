@@ -6,14 +6,11 @@ namespace PowerGauge.Platform;
 
 public sealed class UnsupportedMousePowerReader : IMousePowerReader
 {
-    public MousePowerSnapshot Probe()
+    public PowerProbeReport Probe()
     {
-        return new MousePowerSnapshot(
+        return new PowerProbeReport(
             DateTimeOffset.Now,
-            "unsupported platform",
-            null,
-            null,
-            false,
+            [],
             PowerFailureKind.UnsupportedResponse,
             "platform unsupported",
             $"{AppIdentity.ProductName} does not support this operating system yet.");

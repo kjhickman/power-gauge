@@ -1,6 +1,5 @@
 using System;
 using System.Text;
-using PowerGauge.Domain;
 using PowerGauge.Platform.Abstractions;
 using PowerGauge.Razer.Protocol;
 
@@ -10,10 +9,9 @@ internal sealed class ViperUltimateDriver : IRazerMouseDriver
 {
     private const int WiredProductId = 0x007a;
     private const int WirelessProductId = 0x007b;
-    private const byte PowerCommandClass = 0x07;
-    private const byte GetBatteryCommandId = 0x80;
-    private const byte GetChargingStatusCommandId = 0x84;
-    private static readonly byte[] CandidateTransactionIds = [0x00, 0x1f, 0x3f, 0xff];
+    private static readonly byte[] CandidateTransactionIds = [0x1f, 0xff, 0x3f, 0x00];
+
+    public string DriverId => "viper-ultimate";
 
     public bool Supports(HidDeviceInfo device)
     {
@@ -47,17 +45,17 @@ internal sealed class ViperUltimateDriver : IRazerMouseDriver
         batteryPercent = 0;
         isCharging = null;
 
-        if (!TryReadPowerResponse(device, featureTransport, diagnostics, GetBatteryCommandId, "Battery", out var batteryResponse))
+        if (!RazerProtocol.TryReadPowerResponse(device, featureTransport, CandidateTransactionIds, diagnostics, RazerProtocol.GetBatteryCommandId, "Battery", out var batteryResponse))
         {
             return false;
         }
 
-        batteryPercent = ParseBatteryPercent(batteryResponse);
+        batteryPercent = RazerProtocol.ParseBatteryPercent(batteryResponse);
         diagnostics.AppendLine($"Battery byte {batteryResponse[9]} parsed as {batteryPercent}%.");
 
-        if (TryReadPowerResponse(device, featureTransport, diagnostics, GetChargingStatusCommandId, "Charging", out var chargingResponse))
+        if (RazerProtocol.TryReadPowerResponse(device, featureTransport, CandidateTransactionIds, diagnostics, RazerProtocol.GetChargingStatusCommandId, "Charging", out var chargingResponse))
         {
-            isCharging = ParseChargingStatus(chargingResponse);
+            isCharging = RazerProtocol.ParseChargingStatus(chargingResponse);
             diagnostics.AppendLine($"Charging byte {chargingResponse[11]} parsed as {(isCharging.Value ? "charging" : "on battery")}.");
         }
 
@@ -70,80 +68,10 @@ internal sealed class ViperUltimateDriver : IRazerMouseDriver
         return true;
     }
 
-    private static bool TryReadPowerResponse(HidDeviceInfo device, IHidFeatureTransport featureTransport, StringBuilder diagnostics, byte commandId, string responseLabel, out byte[] responsePayload)
-    {
-        responsePayload = Array.Empty<byte>();
-
-        var reportLength = Math.Max(RazerProtocol.ReportLength, device.FeatureReportLength);
-        diagnostics.AppendLine($"Feature report length: {reportLength}");
-        if (reportLength < RazerProtocol.ReportLength)
-        {
-            diagnostics.AppendLine("Skipped: feature report length is shorter than 90 bytes.");
-            return false;
-        }
-
-        diagnostics.AppendLine("Using native HID feature transport.");
-        var payloadOffset = reportLength == RazerProtocol.ReportLength + 1 ? 1 : 0;
-        var payloadLength = reportLength - payloadOffset;
-
-        foreach (var transactionId in CandidateTransactionIds)
-        {
-            var requestPayload = RazerProtocol.BuildRequest(payloadLength, transactionId, PowerCommandClass, commandId);
-            var request = new byte[reportLength];
-            Array.Copy(requestPayload, 0, request, payloadOffset, requestPayload.Length);
-
-            var response = new byte[reportLength];
-            if (!featureTransport.TryExchangeFeatureReport(device.DevicePath, request, response, out var error))
-            {
-                diagnostics.AppendLine($"Transaction 0x{transactionId:x2} failed: {error}");
-                continue;
-            }
-
-            var payload = response.AsSpan(payloadOffset, payloadLength).ToArray();
-            diagnostics.AppendLine($"{responseLabel} transaction 0x{transactionId:x2} response: {FormatReport(payload)}");
-
-            if (!RazerProtocol.LooksLikeResponse(payload, transactionId, PowerCommandClass, commandId))
-            {
-                continue;
-            }
-
-            responsePayload = payload;
-            return true;
-        }
-
-        return false;
-    }
-
     private static bool ShouldDiscardBatteryReading(HidDeviceInfo device, int batteryPercent, bool? isCharging)
     {
         return device.ProductId == WirelessProductId
             && batteryPercent == 0
             && isCharging is not true;
-    }
-
-    private static int ParseBatteryPercent(System.Collections.Generic.IReadOnlyList<byte> response)
-    {
-        return (int)Math.Round(response[9] * 100.0 / 255.0, MidpointRounding.AwayFromZero);
-    }
-
-    private static bool ParseChargingStatus(System.Collections.Generic.IReadOnlyList<byte> response)
-    {
-        return response[9] == 0x01 || response[11] == 0x01;
-    }
-
-    private static string FormatReport(System.Collections.Generic.IReadOnlyList<byte> report)
-    {
-        var builder = new StringBuilder();
-        for (var i = 0; i < report.Count && i < RazerProtocol.ReportLength; i++)
-        {
-            if (i > 0)
-            {
-                builder.Append(' ');
-            }
-
-            builder.Append(report[i].ToString("x2", System.Globalization.CultureInfo.InvariantCulture));
-        }
-
-        return builder.ToString();
     }
 }

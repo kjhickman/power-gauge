@@ -27,7 +27,13 @@ public class RazerMouseReader : IMousePowerReader
         _probeLogWriter = probeLogWriter;
     }
 
-    public MousePowerSnapshot Probe()
+    internal static IReadOnlyList<IRazerMouseDriver> CreateDefaultDrivers() =>
+    [
+        new ViperUltimateDriver(),
+        new NagaV2HyperSpeedDriver(),
+    ];
+
+    public PowerProbeReport Probe()
     {
         var timestamp = DateTimeOffset.Now;
         var diagnostics = new StringBuilder();
@@ -45,12 +51,9 @@ public class RazerMouseReader : IMousePowerReader
         catch (Exception ex)
         {
             diagnostics.AppendLine($"HID enumeration failed: {ex.Message}");
-            return FinalizeSnapshot(new MousePowerSnapshot(
+            return FinalizeReport(new PowerProbeReport(
                 timestamp,
-                "no compatible Razer HID device",
-                null,
-                null,
-                false,
+                [],
                 PowerFailureKind.EnumerationFailed,
                 "enumeration failed",
                 diagnostics.ToString()));
@@ -65,86 +68,117 @@ public class RazerMouseReader : IMousePowerReader
         if (razerDevices.Count == 0)
         {
             diagnostics.AppendLine("No Razer HID devices found.");
-            return FinalizeSnapshot(new MousePowerSnapshot(
+            return FinalizeReport(new PowerProbeReport(
                 timestamp,
-                "no compatible Razer HID device",
-                null,
-                null,
-                false,
+                [],
                 PowerFailureKind.DeviceUnavailable,
                 "no devices",
                 diagnostics.ToString()));
         }
 
-        var candidateDevices = PrioritizeDevices(razerDevices);
-        if (candidateDevices.Count == 0)
+        var driverGroups = GroupDevicesByDriver(razerDevices);
+        if (driverGroups.Count == 0)
         {
             diagnostics.AppendLine("No supported Razer mouse device found.");
-            return FinalizeSnapshot(new MousePowerSnapshot(
+            return FinalizeReport(new PowerProbeReport(
                 timestamp,
-                "no supported Razer mouse device",
-                null,
-                null,
-                false,
+                [],
                 PowerFailureKind.DeviceUnavailable,
                 "no supported device",
                 diagnostics.ToString()));
         }
 
-        diagnostics.AppendLine($"Prioritized {candidateDevices.Count} candidate device(s) for probing.");
+        diagnostics.AppendLine($"Matched {driverGroups.Count} supported Razer mouse model(s).");
+        var deviceSnapshots = new List<MousePowerSnapshot>(driverGroups.Count);
 
-        foreach (var candidate in candidateDevices)
+        foreach (var group in driverGroups)
         {
-            var device = candidate.Device;
-            var driver = candidate.Driver;
-            diagnostics.AppendLine($"Trying {DescribeDevice(device)}");
+            var deviceDiagnostics = new StringBuilder();
+            MousePowerSnapshot? resolvedSnapshot = null;
 
-            if (driver.TryProbe(device, _featureTransport, diagnostics, out var batteryPercent, out var isCharging))
+            foreach (var device in group.Devices)
             {
-                return FinalizeSnapshot(new MousePowerSnapshot(
-                    timestamp,
-                    driver.GetDisplayName(device),
-                    batteryPercent,
-                    isCharging,
-                    true,
-                    PowerFailureKind.None,
-                    "success",
-                    diagnostics.ToString()));
+                deviceDiagnostics.AppendLine($"Trying {DescribeDevice(device)}");
+
+                if (group.Driver.TryProbe(device, _featureTransport, deviceDiagnostics, out var batteryPercent, out var isCharging))
+                {
+                    resolvedSnapshot = new MousePowerSnapshot(
+                        group.Driver.DriverId,
+                        timestamp,
+                        group.Driver.GetDisplayName(device),
+                        batteryPercent,
+                        isCharging,
+                        true,
+                        PowerFailureKind.None,
+                        "success",
+                        deviceDiagnostics.ToString());
+                    break;
+                }
             }
+
+            if (resolvedSnapshot is null)
+            {
+                var (failureKind, resultDetail) = ClassifyProbeFailure(deviceDiagnostics.ToString());
+                resolvedSnapshot = new MousePowerSnapshot(
+                    group.Driver.DriverId,
+                    timestamp,
+                    group.Driver.GetDisplayName(group.Devices[0]),
+                    null,
+                    null,
+                    false,
+                    failureKind,
+                    resultDetail,
+                    deviceDiagnostics.ToString());
+            }
+
+            deviceSnapshots.Add(resolvedSnapshot);
+            diagnostics.Append(deviceDiagnostics);
         }
 
-        var (failureKind, resultDetail) = ClassifyProbeFailure(diagnostics.ToString());
+        var (reportFailureKind, reportResultDetail) = SummarizeOutcome(deviceSnapshots);
 
-        return FinalizeSnapshot(new MousePowerSnapshot(
+        return FinalizeReport(new PowerProbeReport(
             timestamp,
-            $"tried {candidateDevices.Count}/{razerDevices.Count} Razer HID device(s)",
-            null,
-            null,
-            false,
-            failureKind,
-            resultDetail,
+            deviceSnapshots,
+            reportFailureKind,
+            reportResultDetail,
             diagnostics.ToString()));
     }
 
-    private IReadOnlyList<DriverCandidate> PrioritizeDevices(IReadOnlyList<HidDeviceInfo> devices)
+    private IReadOnlyList<DriverDeviceGroup> GroupDevicesByDriver(IReadOnlyList<HidDeviceInfo> devices)
     {
-        var candidates = new List<DriverCandidate>();
+        var groups = new List<DriverDeviceGroup>();
 
-        foreach (var device in devices)
+        foreach (var driver in _mouseDrivers)
         {
-            var driver = GetBestDriver(device);
-            if (driver is null)
-            {
-                continue;
-            }
+            var matchedDevices = devices
+                .Where(device => ReferenceEquals(GetBestDriver(device), driver))
+                .OrderBy(driver.GetPriority)
+                .ThenBy(device => device.DevicePath, StringComparer.Ordinal)
+                .ToArray();
 
-            candidates.Add(new DriverCandidate(device, driver));
+            if (matchedDevices.Length > 0)
+            {
+                groups.Add(new DriverDeviceGroup(driver, matchedDevices));
+            }
         }
 
-        return candidates
-            .OrderBy(candidate => candidate.Driver.GetPriority(candidate.Device))
-            .ThenBy(candidate => candidate.Device.DevicePath, StringComparer.Ordinal)
-            .ToArray();
+        return groups;
+    }
+
+    private static (PowerFailureKind FailureKind, string ResultDetail) SummarizeOutcome(IReadOnlyList<MousePowerSnapshot> snapshots)
+    {
+        if (snapshots.All(snapshot => snapshot.IsSuccessful))
+        {
+            return (PowerFailureKind.None, "success");
+        }
+
+        if (snapshots.Any(snapshot => snapshot.IsSuccessful))
+        {
+            return (PowerFailureKind.None, "partial");
+        }
+
+        return (snapshots[0].FailureKind, snapshots[0].ResultDetail);
     }
 
     private static string DescribeDevice(HidDeviceInfo device)
@@ -155,9 +189,9 @@ public class RazerMouseReader : IMousePowerReader
             $"{name} ({device.VendorId:x4}:{device.ProductId:x4}, feature={device.FeatureReportLength}, path={device.DevicePath})");
     }
 
-    private MousePowerSnapshot FinalizeSnapshot(MousePowerSnapshot snapshot)
+    private PowerProbeReport FinalizeReport(PowerProbeReport report)
     {
-        return snapshot with { LogFilePath = _probeLogWriter.Write(snapshot) };
+        return report with { LogFilePath = _probeLogWriter.Write(report) };
     }
 
     private static (PowerFailureKind FailureKind, string ResultDetail) ClassifyProbeFailure(string diagnostics)
@@ -173,7 +207,8 @@ public class RazerMouseReader : IMousePowerReader
         }
 
         if (diagnostics.Contains("timed out", StringComparison.OrdinalIgnoreCase)
-            || diagnostics.Contains("timeout", StringComparison.OrdinalIgnoreCase))
+            || diagnostics.Contains("timeout", StringComparison.OrdinalIgnoreCase)
+            || diagnostics.Contains("concurrent device traffic", StringComparison.OrdinalIgnoreCase))
         {
             return (PowerFailureKind.ProtocolTimeout, "probe timed out");
         }
@@ -201,5 +236,5 @@ public class RazerMouseReader : IMousePowerReader
             .FirstOrDefault();
     }
 
-    private sealed record DriverCandidate(HidDeviceInfo Device, IRazerMouseDriver Driver);
+    private sealed record DriverDeviceGroup(IRazerMouseDriver Driver, IReadOnlyList<HidDeviceInfo> Devices);
 }

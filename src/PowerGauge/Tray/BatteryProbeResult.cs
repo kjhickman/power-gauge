@@ -1,13 +1,17 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using PowerGauge.Domain;
 
 namespace PowerGauge.Tray;
 
-public sealed record BatteryProbeResult(
-    string BatteryHeader,
-    string StatusHeader,
+public sealed record DeviceBatteryDisplay(
     string DeviceHeader,
+    string BatteryStatusHeader);
+
+public sealed record BatteryProbeResult(
+    IReadOnlyList<DeviceBatteryDisplay> DeviceSections,
     string ResultHeader,
     string DiagnosticsHeader,
     bool ShowDiagnostics,
@@ -15,32 +19,182 @@ public sealed record BatteryProbeResult(
     string? LogFilePath = null,
     int? IconBatteryPercent = null)
 {
-    public static BatteryProbeResult FromSnapshot(MousePowerSnapshot snapshot, MousePowerSnapshot? fallbackSnapshot = null)
+    private const int MaxTooltipLength = 127;
+
+    public static BatteryProbeResult FromReport(
+        PowerProbeReport report,
+        IReadOnlyDictionary<string, MousePowerSnapshot> lastSuccessfulByDevice)
     {
-        var displaySnapshot = snapshot.IsSuccessful ? snapshot : fallbackSnapshot ?? snapshot;
-        var batteryHeader = displaySnapshot.BatteryPercent is int batteryPercent
-            ? $"Battery: {batteryPercent}%"
-            : "Battery: unavailable";
-        var statusHeader = BuildStatusHeader(snapshot, displaySnapshot, fallbackSnapshot is not null && !snapshot.IsSuccessful);
-        var resultHeader = BuildResultHeader(snapshot, displaySnapshot, fallbackSnapshot is not null && !snapshot.IsSuccessful);
-        var tooltipDeviceName = GetTooltipDeviceName(displaySnapshot.DeviceDisplayName);
-        var toolTipText = displaySnapshot.BatteryPercent is int percent
-            ? BuildTooltip(tooltipDeviceName, percent, statusHeader)
-            : BuildUnavailableTooltip(statusHeader);
-        var diagnosticsHeader = snapshot.IsSuccessful
+        if (report.Devices.Count == 0)
+        {
+            return BuildEmptyResult(report);
+        }
+
+        var resolvedDevices = report.Devices
+            .Select(snapshot => ResolveDevice(snapshot, lastSuccessfulByDevice))
+            .OrderBy(device => device.EffectiveBatteryPercent is null ? 1 : 0)
+            .ThenBy(device => device.EffectiveBatteryPercent ?? int.MaxValue)
+            .ThenBy(device => device.EffectiveIsCharging == true ? 1 : 0)
+            .ThenBy(device => device.DisplayName, StringComparer.Ordinal)
+            .ToArray();
+
+        var iconBatteryPercent = resolvedDevices
+            .Where(device => device.EffectiveBatteryPercent is not null)
+            .Select(device => device.EffectiveBatteryPercent)
+            .FirstOrDefault();
+
+        var sections = resolvedDevices
+            .Select(device => new DeviceBatteryDisplay(device.DisplayName, device.MenuBatteryStatusLine))
+            .ToArray();
+
+        var resultHeader = BuildResultHeader(report, resolvedDevices);
+        var toolTipText = BuildMultiDeviceTooltip(resolvedDevices);
+        var diagnosticSource = resolvedDevices.FirstOrDefault(device => device.HasUnexpectedFailure)
+            ?? (iconBatteryPercent is null ? resolvedDevices.FirstOrDefault(device => !device.Snapshot.IsSuccessful) : null);
+        var showDiagnostics = diagnosticSource is not null;
+        var diagnosticsHeader = diagnosticSource is null
             ? string.Empty
-            : TruncateHeader($"Diagnostics: {LastDiagnosticLine(snapshot.Diagnostics)}");
+            : TruncateHeader($"Diagnostics: {LastDiagnosticLine(diagnosticSource.Snapshot.Diagnostics)}");
 
         return new BatteryProbeResult(
-            batteryHeader,
-            statusHeader,
-            $"Device: {displaySnapshot.DeviceDisplayName}",
+            sections,
             resultHeader,
             diagnosticsHeader,
-            !snapshot.IsSuccessful,
+            showDiagnostics,
             toolTipText,
-            snapshot.LogFilePath,
-            displaySnapshot.BatteryPercent);
+            report.LogFilePath,
+            iconBatteryPercent);
+    }
+
+    private static BatteryProbeResult BuildEmptyResult(PowerProbeReport report)
+    {
+        var deviceDescription = report.FailureKind switch
+        {
+            PowerFailureKind.EnumerationFailed => "HID enumeration failed",
+            _ when string.Equals(report.ResultDetail, "platform unsupported", StringComparison.Ordinal) => "Unsupported platform",
+            _ => "No supported Razer mouse detected",
+        };
+        var statusLabel = FormatFailureLabel(report.FailureKind, fallbackTimestamp: null);
+        var diagnosticsHeader = TruncateHeader($"Diagnostics: {LastDiagnosticLine(report.Diagnostics)}");
+        var toolTipText = ClampTooltip($"{AppIdentity.ProductName}\n{deviceDescription}\nStatus: {statusLabel}");
+
+        return new BatteryProbeResult(
+            [new DeviceBatteryDisplay(deviceDescription, $"Battery: unavailable · {statusLabel}")],
+            $"Last attempt: {report.Timestamp:HH:mm:ss}",
+            diagnosticsHeader,
+            true,
+            toolTipText,
+            report.LogFilePath,
+            null);
+    }
+
+    private static ResolvedDeviceState ResolveDevice(
+        MousePowerSnapshot snapshot,
+        IReadOnlyDictionary<string, MousePowerSnapshot> lastSuccessfulByDevice)
+    {
+        lastSuccessfulByDevice.TryGetValue(snapshot.DeviceKey, out var fallback);
+        var isUsingFallback = !snapshot.IsSuccessful && fallback is not null;
+        var displaySnapshot = snapshot.IsSuccessful ? snapshot : fallback ?? snapshot;
+        var effectiveBattery = displaySnapshot.BatteryPercent;
+        var effectiveIsCharging = snapshot.IsSuccessful ? snapshot.IsCharging : fallback?.IsCharging;
+
+        var statusLabel = snapshot.IsSuccessful
+            ? FormatActiveStatusLabel(snapshot.IsCharging)
+            : FormatFailureLabel(snapshot.FailureKind, fallback?.Timestamp);
+
+        var tooltipStatusLabel = snapshot.IsSuccessful
+            ? FormatActiveStatusLabel(snapshot.IsCharging)
+            : FormatShortFailureLabel(snapshot.FailureKind);
+
+        var menuBatteryStatusLine = effectiveBattery is int percent
+            ? $"Battery: {percent}% · {statusLabel}"
+            : $"Battery: unavailable · {statusLabel}";
+
+        var hasUnexpectedFailure = !snapshot.IsSuccessful
+            && !(snapshot.FailureKind == PowerFailureKind.DeviceSleeping && isUsingFallback);
+
+        return new ResolvedDeviceState(
+            snapshot,
+            displaySnapshot.DeviceDisplayName,
+            effectiveBattery,
+            effectiveIsCharging,
+            isUsingFallback ? fallback!.Timestamp : snapshot.Timestamp,
+            menuBatteryStatusLine,
+            tooltipStatusLabel,
+            hasUnexpectedFailure);
+    }
+
+    private static string BuildResultHeader(PowerProbeReport report, IReadOnlyList<ResolvedDeviceState> devices)
+    {
+        if (devices.Any(device => device.Snapshot.IsSuccessful))
+        {
+            return $"Last updated: {report.Timestamp:HH:mm:ss}";
+        }
+
+        var latestCached = devices
+            .Where(device => device.EffectiveBatteryPercent is not null)
+            .Select(device => (DateTimeOffset?)device.EffectiveTimestamp)
+            .Max();
+
+        if (latestCached is DateTimeOffset cachedTimestamp)
+        {
+            return $"Last updated: {cachedTimestamp:HH:mm:ss} (checked {report.Timestamp:HH:mm:ss})";
+        }
+
+        return $"Last attempt: {report.Timestamp:HH:mm:ss}";
+    }
+
+    private static string BuildMultiDeviceTooltip(IReadOnlyList<ResolvedDeviceState> devices)
+    {
+        var builder = new StringBuilder(AppIdentity.ProductName);
+
+        foreach (var device in devices)
+        {
+            var shortName = GetTooltipDeviceName(device.DisplayName);
+            builder.Append('\n');
+            if (device.EffectiveBatteryPercent is int percent)
+            {
+                builder.Append($"{shortName}: {percent}% ({device.TooltipStatusLabel})");
+            }
+            else
+            {
+                builder.Append($"{shortName}: {device.TooltipStatusLabel}");
+            }
+        }
+
+        return ClampTooltip(builder.ToString());
+    }
+
+    private static string FormatActiveStatusLabel(bool? isCharging)
+    {
+        return isCharging switch
+        {
+            true => "Charging",
+            false => "On battery",
+            _ => "Unavailable",
+        };
+    }
+
+    private static string FormatFailureLabel(PowerFailureKind failureKind, DateTimeOffset? fallbackTimestamp)
+    {
+        var baseLabel = FormatShortFailureLabel(failureKind);
+        return fallbackTimestamp is DateTimeOffset timestamp
+            ? $"{baseLabel} (last known {timestamp:HH:mm:ss})"
+            : baseLabel;
+    }
+
+    private static string FormatShortFailureLabel(PowerFailureKind failureKind)
+    {
+        return failureKind switch
+        {
+            PowerFailureKind.DeviceSleeping => "Sleeping",
+            PowerFailureKind.DeviceUnavailable => "Device unavailable",
+            PowerFailureKind.ProtocolTimeout => "Timed out",
+            PowerFailureKind.PermissionRequired => "Input Monitoring required",
+            PowerFailureKind.UnsupportedResponse => "Unable to refresh",
+            PowerFailureKind.EnumerationFailed => "HID error",
+            _ => "Waiting for update",
+        };
     }
 
     private static string LastDiagnosticLine(string diagnostics)
@@ -56,73 +210,26 @@ public sealed record BatteryProbeResult(
         return value.Length <= 80 ? value : string.Concat(value.AsSpan(0, 77), "...");
     }
 
+    private static string ClampTooltip(string value)
+    {
+        return value.Length <= MaxTooltipLength
+            ? value
+            : string.Concat(value.AsSpan(0, MaxTooltipLength - 3), "...");
+    }
+
     private static string GetTooltipDeviceName(string deviceDisplayName)
     {
         var detailsStart = deviceDisplayName.IndexOf(" (", StringComparison.Ordinal);
         return detailsStart > 0 ? deviceDisplayName[..detailsStart] : deviceDisplayName;
     }
 
-    private static string BuildTooltip(string deviceName, int batteryPercent, string statusHeader)
-    {
-        var tooltip = $"{AppIdentity.ProductName}\n{deviceName}\nBattery: {batteryPercent}%";
-        return $"{tooltip}\n{statusHeader}";
-    }
-
-    private static string BuildUnavailableTooltip(string statusHeader)
-    {
-        return $"{AppIdentity.ProductName}\nBattery unavailable\n{statusHeader}";
-    }
-
-    private static string BuildStatusHeader(MousePowerSnapshot snapshot, MousePowerSnapshot displaySnapshot, bool isUsingFallback)
-    {
-        if (snapshot.IsSuccessful)
-        {
-            return displaySnapshot.IsCharging switch
-            {
-                true => "Status: Charging",
-                false => "Status: On battery",
-                _ => "Status: unavailable",
-            };
-        }
-
-        return snapshot.FailureKind switch
-        {
-            PowerFailureKind.DeviceSleeping => isUsingFallback
-                ? "Status: Sleeping (showing last known reading)"
-                : "Status: Sleeping",
-            PowerFailureKind.DeviceUnavailable => isUsingFallback
-                ? "Status: Device unavailable (showing last known reading)"
-                : "Status: Device unavailable",
-            PowerFailureKind.ProtocolTimeout => isUsingFallback
-                ? "Status: Timed out (showing last known reading)"
-                : "Status: Timed out",
-            PowerFailureKind.PermissionRequired => isUsingFallback
-                ? "Status: Input Monitoring required (showing last known reading)"
-                : "Status: Input Monitoring required",
-            PowerFailureKind.UnsupportedResponse => isUsingFallback
-                ? "Status: Unable to refresh (showing last known reading)"
-                : "Status: Unable to refresh",
-            PowerFailureKind.EnumerationFailed => isUsingFallback
-                ? "Status: HID error (showing last known reading)"
-                : "Status: HID error",
-            _ => isUsingFallback
-                ? "Status: Waiting for update (showing last known reading)"
-                : "Status: Waiting for update",
-        };
-    }
-
-    private static string BuildResultHeader(MousePowerSnapshot snapshot, MousePowerSnapshot displaySnapshot, bool isUsingFallback)
-    {
-        if (snapshot.IsSuccessful)
-        {
-            return $"Last updated: {snapshot.Timestamp:HH:mm:ss}";
-        }
-
-        if (isUsingFallback)
-        {
-            return $"Last updated: {displaySnapshot.Timestamp:HH:mm:ss} (refresh failed at {snapshot.Timestamp:HH:mm:ss})";
-        }
-
-        return $"Last attempt: {snapshot.Timestamp:HH:mm:ss}";
-    }
+    private sealed record ResolvedDeviceState(
+        MousePowerSnapshot Snapshot,
+        string DisplayName,
+        int? EffectiveBatteryPercent,
+        bool? EffectiveIsCharging,
+        DateTimeOffset EffectiveTimestamp,
+        string MenuBatteryStatusLine,
+        string TooltipStatusLabel,
+        bool HasUnexpectedFailure);
 }

@@ -8,7 +8,7 @@ namespace PowerGauge.Platform.MacOS;
 internal sealed class MacOsRazerMouseReader : RazerMouseReader
 {
     public MacOsRazerMouseReader()
-        : base(new MacOsHidDeviceEnumerator(), new MacOsHidFeatureTransport(), [new ViperUltimateDriver()], new ProbeLogWriter())
+        : base(new MacOsHidDeviceEnumerator(), new MacOsHidFeatureTransport(), CreateDefaultDrivers(), new ProbeLogWriter())
     {
     }
 }

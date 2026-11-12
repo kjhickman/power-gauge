@@ -4,5 +4,5 @@ namespace PowerGauge.Application;
 
 public interface IMousePowerReader
 {
-    MousePowerSnapshot Probe();
+    PowerProbeReport Probe();
 }

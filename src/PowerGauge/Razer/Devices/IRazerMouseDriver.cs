@@ -1,11 +1,12 @@
 using System.Text;
-using PowerGauge.Domain;
 using PowerGauge.Platform.Abstractions;
 
 namespace PowerGauge.Razer.Devices;
 
 internal interface IRazerMouseDriver
 {
+    string DriverId { get; }
+
     bool Supports(HidDeviceInfo device);
 
     int GetPriority(HidDeviceInfo device);

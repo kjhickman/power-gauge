@@ -1,11 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using PowerGauge.Platform.Abstractions;
 
 namespace PowerGauge.Razer.Protocol;
 
 internal static class RazerProtocol
 {
     public const int ReportLength = 90;
+    public const byte PowerCommandClass = 0x07;
+    public const byte GetBatteryCommandId = 0x80;
+    public const byte GetChargingStatusCommandId = 0x84;
 
     public static byte[] BuildRequest(int reportLength, byte transactionId, byte commandClass, byte commandId, byte dataSize = 0x02)
     {
@@ -19,20 +25,109 @@ internal static class RazerProtocol
         return request;
     }
 
-    public static bool LooksLikeResponse(IReadOnlyList<byte> response, byte transactionId, byte commandClass, byte commandId)
+    public static bool IsSuccessResponse(IReadOnlyList<byte> response, byte transactionId, byte commandClass, byte commandId)
     {
-        if (response.Count < ReportLength)
+        return MatchesHeader(response, transactionId, commandClass, commandId)
+            && response[0] is 0x00 or 0x02;
+    }
+
+    public static bool IsTimeoutResponse(IReadOnlyList<byte> response, byte transactionId, byte commandClass, byte commandId)
+    {
+        return MatchesHeader(response, transactionId, commandClass, commandId)
+            && response[0] == 0x04;
+    }
+
+    public static bool TryReadPowerResponse(
+        HidDeviceInfo device,
+        IHidFeatureTransport featureTransport,
+        ReadOnlySpan<byte> candidateTransactionIds,
+        StringBuilder diagnostics,
+        byte commandId,
+        string responseLabel,
+        out byte[] responsePayload)
+    {
+        responsePayload = [];
+
+        var reportLength = Math.Max(ReportLength, device.FeatureReportLength);
+        diagnostics.AppendLine($"Feature report length: {reportLength}");
+        if (reportLength < ReportLength)
         {
+            diagnostics.AppendLine("Skipped: feature report length is shorter than 90 bytes.");
             return false;
         }
 
-        var status = response[0];
-        if (status is not (0x00 or 0x02 or 0x04))
+        diagnostics.AppendLine("Using native HID feature transport.");
+        var payloadOffset = reportLength == ReportLength + 1 ? 1 : 0;
+        var payloadLength = reportLength - payloadOffset;
+        byte[]? timeoutPayload = null;
+
+        foreach (var transactionId in candidateTransactionIds)
         {
-            return false;
+            var requestPayload = BuildRequest(payloadLength, transactionId, PowerCommandClass, commandId);
+            var request = new byte[reportLength];
+            Array.Copy(requestPayload, 0, request, payloadOffset, requestPayload.Length);
+
+            var response = new byte[reportLength];
+            if (!featureTransport.TryExchangeFeatureReport(device.DevicePath, request, response, out var error))
+            {
+                diagnostics.AppendLine($"Transaction 0x{transactionId:x2} failed: {error}");
+                continue;
+            }
+
+            var payload = response.AsSpan(payloadOffset, payloadLength).ToArray();
+            diagnostics.AppendLine($"{responseLabel} transaction 0x{transactionId:x2} response: {FormatReport(payload)}");
+
+            if (IsSuccessResponse(payload, transactionId, PowerCommandClass, commandId))
+            {
+                responsePayload = payload;
+                return true;
+            }
+
+            if (IsTimeoutResponse(payload, transactionId, PowerCommandClass, commandId))
+            {
+                timeoutPayload ??= payload;
+            }
         }
 
-        return response[1] == transactionId
+        if (timeoutPayload is not null)
+        {
+            responsePayload = timeoutPayload;
+            return true;
+        }
+
+        return false;
+    }
+
+    public static int ParseBatteryPercent(IReadOnlyList<byte> response)
+    {
+        return (int)Math.Round(response[9] * 100.0 / 255.0, MidpointRounding.AwayFromZero);
+    }
+
+    public static bool ParseChargingStatus(IReadOnlyList<byte> response)
+    {
+        return response[9] == 0x01 || response[11] == 0x01;
+    }
+
+    public static string FormatReport(IReadOnlyList<byte> report)
+    {
+        var builder = new StringBuilder();
+        for (var i = 0; i < report.Count && i < ReportLength; i++)
+        {
+            if (i > 0)
+            {
+                builder.Append(' ');
+            }
+
+            builder.Append(report[i].ToString("x2", CultureInfo.InvariantCulture));
+        }
+
+        return builder.ToString();
+    }
+
+    private static bool MatchesHeader(IReadOnlyList<byte> response, byte transactionId, byte commandClass, byte commandId)
+    {
+        return response.Count >= ReportLength
+            && response[1] == transactionId
             && response[6] == commandClass
             && response[7] == commandId;
     }
