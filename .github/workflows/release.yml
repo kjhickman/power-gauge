@@ -122,7 +122,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: PowerGauge-macos-arm64-${{ steps.version.outputs.value }}
-          path: artifacts/release/PowerGauge-macos-arm64-${{ steps.version.outputs.value }}.zip
+          path: |
+            artifacts/release/PowerGauge-macos-arm64-${{ steps.version.outputs.value }}.zip
+            artifacts/release/PowerGauge-macos-arm64-${{ steps.version.outputs.value }}.dmg
 
       - name: Upload macOS zip to release
         if: github.event_name == 'release'
@@ -132,4 +134,14 @@ jobs:
           tag: ${{ github.event.release.tag_name }}
           file: artifacts/release/PowerGauge-macos-arm64-${{ steps.version.outputs.value }}.zip
           asset_name: PowerGauge-macos-arm64-${{ steps.version.outputs.value }}.zip
+          overwrite: true
+
+      - name: Upload macOS dmg to release
+        if: github.event_name == 'release'
+        uses: svenstaro/upload-release-action@2.11.5
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.event.release.tag_name }}
+          file: artifacts/release/PowerGauge-macos-arm64-${{ steps.version.outputs.value }}.dmg
+          asset_name: PowerGauge-macos-arm64-${{ steps.version.outputs.value }}.dmg
           overwrite: true

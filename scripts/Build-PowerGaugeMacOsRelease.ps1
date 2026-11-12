@@ -16,8 +16,10 @@ $contentsDir = Join-Path $appBundlePath "Contents"
 $macOsDir = Join-Path $contentsDir "MacOS"
 $resourcesDir = Join-Path $contentsDir "Resources"
 $infoPlistPath = Join-Path $contentsDir "Info.plist"
+$dmgStageDir = Join-Path $repoRoot "artifacts/package/macos-dmg"
 $releaseDir = Join-Path $repoRoot "artifacts/release"
 $releaseZip = Join-Path $releaseDir "PowerGauge-macos-arm64-$Version.zip"
+$releaseDmg = Join-Path $releaseDir "PowerGauge-macos-arm64-$Version.dmg"
 
 $numericVersionMatch = [System.Text.RegularExpressions.Regex]::Match($Version, '^\d+(?:\.\d+){0,3}')
 if (-not $numericVersionMatch.Success) {
@@ -103,15 +105,51 @@ if (Test-Path $releaseZip) {
     Remove-Item $releaseZip -Force
 }
 
-Write-Host "Creating release zip $releaseZip..."
-if ($IsMacOS) {
-    & ditto -c -k --norsrc --keepParent $appBundlePath $releaseZip
-    if ($LASTEXITCODE -ne 0) {
-        throw "ditto failed with exit code $LASTEXITCODE"
-    }
+if (Test-Path $releaseDmg) {
+    Remove-Item $releaseDmg -Force
 }
-else {
+
+if (-not $IsMacOS) {
     throw "Build-PowerGaugeMacOsRelease.ps1 must run on macOS to package the app bundle."
 }
 
-Write-Host "Created macOS release artifact at $releaseZip"
+Write-Host "Creating release zip $releaseZip..."
+& ditto -c -k --norsrc --keepParent $appBundlePath $releaseZip
+if ($LASTEXITCODE -ne 0) {
+    throw "ditto failed with exit code $LASTEXITCODE"
+}
+
+Write-Host "Preparing DMG staging directory..."
+if (Test-Path $dmgStageDir) {
+    Remove-Item $dmgStageDir -Recurse -Force
+}
+
+New-Item -ItemType Directory -Path $dmgStageDir -Force | Out-Null
+& ditto $appBundlePath (Join-Path $dmgStageDir "$appName.app")
+if ($LASTEXITCODE -ne 0) {
+    throw "ditto to DMG staging directory failed with exit code $LASTEXITCODE"
+}
+
+& ln -s /Applications (Join-Path $dmgStageDir "Applications")
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to create Applications symlink with exit code $LASTEXITCODE"
+}
+
+Write-Host "Creating release DMG $releaseDmg..."
+$dmgCreated = $false
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    & hdiutil create -volname $appName -srcfolder $dmgStageDir -ov -format UDZO $releaseDmg
+    if ($LASTEXITCODE -eq 0) {
+        $dmgCreated = $true
+        break
+    }
+
+    Write-Host "hdiutil create attempt $attempt failed with exit code $LASTEXITCODE; retrying..."
+    Start-Sleep -Seconds 2
+}
+
+if (-not $dmgCreated) {
+    throw "hdiutil create failed after 3 attempts."
+}
+
+Write-Host "Created macOS release artifacts at $releaseZip and $releaseDmg"
