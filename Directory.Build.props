@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework Condition="'$(TargetFramework)' == ''">net11.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <Version Condition="'$(Version)' == ''">0.1.0</Version>
+    <Version Condition="'$(Version)' == ''">0.2.0</Version>
     <FileVersion Condition="'$(FileVersion)' == ''">$(Version)</FileVersion>
     <InformationalVersion Condition="'$(InformationalVersion)' == ''">$(Version)</InformationalVersion>
     <Product>PowerGauge</Product>
