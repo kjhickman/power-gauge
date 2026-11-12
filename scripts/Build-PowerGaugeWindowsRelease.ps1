@@ -39,18 +39,7 @@ if (Test-Path $packageDir) {
 New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
 
 Write-Host "Preparing package contents..."
-$publishFiles = Get-ChildItem -Path $publishDir -Recurse -File | Where-Object { $_.Extension -ne '.pdb' }
-foreach ($file in $publishFiles) {
-    $relativePath = [System.IO.Path]::GetRelativePath($publishDir, $file.FullName)
-    $destinationPath = Join-Path $packageDir $relativePath
-    $destinationDirectory = Split-Path -Parent $destinationPath
-
-    if (-not (Test-Path $destinationDirectory)) {
-        New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
-    }
-
-    Copy-Item $file.FullName -Destination $destinationPath
-}
+Copy-Item -Path (Join-Path $publishDir "*") -Destination $packageDir -Recurse -Exclude "*.pdb"
 
 New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 

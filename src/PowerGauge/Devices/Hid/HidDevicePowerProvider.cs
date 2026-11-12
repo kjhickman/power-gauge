@@ -74,7 +74,7 @@ public sealed class HidDevicePowerProvider : IDevicePowerProvider
         }
 
         var targetGroups = GroupDevicesByTarget(vendorDevices);
-        if (targetGroups.Count == 0)
+        if (targetGroups.Length == 0)
         {
             diagnostics.AppendLine("No supported wireless HID device found.");
             return new ProviderProbeResult(
@@ -84,8 +84,8 @@ public sealed class HidDevicePowerProvider : IDevicePowerProvider
                 diagnostics.ToString());
         }
 
-        diagnostics.AppendLine($"Matched {targetGroups.Count} supported wireless HID device(s).");
-        var snapshots = new List<DevicePowerSnapshot>(targetGroups.Count);
+        diagnostics.AppendLine($"Matched {targetGroups.Length} supported wireless HID device(s).");
+        var snapshots = new List<DevicePowerSnapshot>(targetGroups.Length);
 
         foreach (var group in targetGroups)
         {
@@ -160,50 +160,38 @@ public sealed class HidDevicePowerProvider : IDevicePowerProvider
             diagnostics.Append(deviceDiagnostics);
         }
 
-        var (summaryKind, summaryDetail) = SummarizeOutcome(snapshots);
+        var (summaryKind, summaryDetail) = PowerFailureClassifier.Summarize(snapshots);
         return new ProviderProbeResult(snapshots, summaryKind, summaryDetail, diagnostics.ToString());
     }
 
-    private IReadOnlyList<DeviceTargetGroup> GroupDevicesByTarget(IReadOnlyList<HidDeviceInfo> devices)
+    private DeviceTargetGroup[] GroupDevicesByTarget(IReadOnlyList<HidDeviceInfo> devices)
     {
-        var matchedByKey = new Dictionary<string, (IHidDeviceDriver Driver, List<HidDeviceInfo> Devices)>(StringComparer.Ordinal);
-        var orderedKeys = new List<string>();
+        return devices
+            .Select(device => (Device: device, Driver: GetBestDriver(device)))
+            .Where(match => match.Driver is not null)
+            .OrderBy(match => IndexOfDriver(match.Driver!))
+            .GroupBy(match => (Driver: match.Driver!, Key: match.Driver!.GetDeviceKey(match.Device)))
+            .Select(group => new DeviceTargetGroup(
+                group.Key.Key,
+                group.Key.Driver,
+                [.. group.Select(match => match.Device)
+                    .OrderBy(group.Key.Driver.GetPriority)
+                    .ThenBy(device => device.ProductId)
+                    .ThenBy(device => device.DevicePath, StringComparer.Ordinal)]))
+            .ToArray();
+    }
 
-        foreach (var driver in _drivers)
+    private int IndexOfDriver(IHidDeviceDriver target)
+    {
+        for (var i = 0; i < _drivers.Count; i++)
         {
-            foreach (var device in devices)
+            if (ReferenceEquals(_drivers[i], target))
             {
-                if (!ReferenceEquals(GetBestDriver(device), driver))
-                {
-                    continue;
-                }
-
-                var deviceKey = driver.GetDeviceKey(device);
-                if (!matchedByKey.TryGetValue(deviceKey, out var entry))
-                {
-                    entry = (driver, []);
-                    matchedByKey[deviceKey] = entry;
-                    orderedKeys.Add(deviceKey);
-                }
-
-                entry.Devices.Add(device);
+                return i;
             }
         }
 
-        var groups = new List<DeviceTargetGroup>(orderedKeys.Count);
-        foreach (var key in orderedKeys)
-        {
-            var (driver, candidateDevices) = matchedByKey[key];
-            var sortedCandidates = candidateDevices
-                .OrderBy(driver.GetPriority)
-                .ThenBy(device => device.ProductId)
-                .ThenBy(device => device.DevicePath, StringComparer.Ordinal)
-                .ToArray();
-
-            groups.Add(new DeviceTargetGroup(key, driver, sortedCandidates));
-        }
-
-        return groups;
+        return int.MaxValue;
     }
 
     private IHidDeviceDriver? GetBestDriver(HidDeviceInfo device)
@@ -227,26 +215,6 @@ public sealed class HidDevicePowerProvider : IDevicePowerProvider
         return PowerFailureClassifier.GetPrecedence(candidateKind) < PowerFailureClassifier.GetPrecedence(existing.Kind)
             ? (candidateKind, candidateDetail)
             : existing;
-    }
-
-    private static (PowerFailureKind FailureKind, string ResultDetail) SummarizeOutcome(IReadOnlyList<DevicePowerSnapshot> snapshots)
-    {
-        if (snapshots.All(snapshot => snapshot is DevicePowerSuccess))
-        {
-            return (PowerFailureKind.None, "success");
-        }
-
-        if (snapshots.Any(snapshot => snapshot is DevicePowerSuccess))
-        {
-            return (PowerFailureKind.None, "partial");
-        }
-
-        var bestFailure = snapshots
-            .OfType<DevicePowerFailureSnapshot>()
-            .OrderBy(snapshot => PowerFailureClassifier.GetPrecedence(snapshot.FailureKind))
-            .First();
-
-        return (bestFailure.FailureKind, bestFailure.ResultDetail);
     }
 
     private static string DescribeDevice(HidDeviceInfo device)

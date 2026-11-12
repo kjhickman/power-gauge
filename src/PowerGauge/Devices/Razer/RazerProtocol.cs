@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Text;
 using PowerGauge.Domain;
 using PowerGauge.Platform.Abstractions;
@@ -87,12 +86,6 @@ internal static class RazerProtocol
     {
         var reportLength = Math.Max(ReportLength, device.FeatureReportLength);
         diagnostics.AppendLine($"Feature report length: {reportLength}");
-        if (reportLength < ReportLength)
-        {
-            diagnostics.AppendLine("Skipped: feature report length is shorter than 90 bytes.");
-            return new RazerReadFailure(PowerFailureKind.UnsupportedResponse);
-        }
-
         diagnostics.AppendLine("Using native HID feature session.");
         var payloadOffset = reportLength == ReportLength + 1 ? 1 : 0;
         var payloadLength = reportLength - payloadOffset;
@@ -175,20 +168,11 @@ internal static class RazerProtocol
         return response[9] == 0x01 || response[11] == 0x01;
     }
 
-    public static string FormatReport(IReadOnlyList<byte> report)
+    public static string FormatReport(byte[] report)
     {
-        var builder = new StringBuilder();
-        for (var i = 0; i < report.Count && i < ReportLength; i++)
-        {
-            if (i > 0)
-            {
-                builder.Append(' ');
-            }
-
-            builder.Append(report[i].ToString("x2", CultureInfo.InvariantCulture));
-        }
-
-        return builder.ToString();
+        return BitConverter.ToString(report, 0, Math.Min(report.Length, ReportLength))
+            .Replace('-', ' ')
+            .ToLowerInvariant();
     }
 
     private static bool MatchesHeader(IReadOnlyList<byte> response, byte transactionId, byte commandClass, byte commandId)

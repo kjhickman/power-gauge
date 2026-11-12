@@ -28,12 +28,12 @@ public sealed class TrayPresenter
         _logMenuItem = CreateReadOnlyItem(string.Empty);
 
         _menu = new NativeMenu();
-        AddDeviceSectionItems("Device: probing...", "Battery: probing...");
         _menu.Add(_resultMenuItem);
         _menu.Add(_versionMenuItem);
         _menu.Add(_diagnosticsMenuItem);
         _menu.Add(_logMenuItem);
         _menu.Add(new NativeMenuItemSeparator());
+        SyncDeviceSections([new DeviceBatteryDisplay("Device: probing...", "Battery: probing...")]);
 
         var refreshMenuItem = new NativeMenuItem("Refresh now");
         refreshMenuItem.Click += (_, _) => refreshNow();
@@ -89,9 +89,7 @@ public sealed class TrayPresenter
             ? _baseToolTipText
             : $"{_baseToolTipText}\n{_updateTooltipNotice}";
 
-        _trayIcon.ToolTipText = combined.Length <= MaxTooltipLength
-            ? combined
-            : string.Concat(combined.AsSpan(0, MaxTooltipLength - 3), "...");
+        _trayIcon.ToolTipText = BatteryProbeResult.Truncate(combined, MaxTooltipLength);
     }
 
     private void SyncDeviceSections(IReadOnlyList<DeviceBatteryDisplay> sections)
@@ -128,16 +126,6 @@ public sealed class TrayPresenter
             _deviceMenuItems[i].DeviceItem.Header = sections[i].DeviceHeader;
             _deviceMenuItems[i].BatteryStatusItem.Header = sections[i].BatteryStatusHeader;
         }
-    }
-
-    private void AddDeviceSectionItems(string deviceHeader, string batteryStatusHeader)
-    {
-        var deviceItem = CreateReadOnlyItem(deviceHeader);
-        var batteryItem = CreateReadOnlyItem(batteryStatusHeader);
-        _menu.Add(deviceItem);
-        _menu.Add(batteryItem);
-        _menu.Add(new NativeMenuItemSeparator());
-        _deviceMenuItems.Add(new DeviceMenuItems(deviceItem, batteryItem));
     }
 
     private static NativeMenuItem CreateReadOnlyItem(string header)

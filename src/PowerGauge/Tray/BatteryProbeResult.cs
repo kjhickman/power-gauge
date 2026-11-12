@@ -19,8 +19,6 @@ public sealed record BatteryProbeResult(
     string? LogFilePath = null,
     int? IconBatteryPercent = null)
 {
-    private const int MaxTooltipLength = 127;
-
     public static BatteryProbeResult FromReport(
         PowerProbeReport report,
         IReadOnlyDictionary<string, DevicePowerSuccess> lastSuccessfulByDevice)
@@ -49,12 +47,11 @@ public sealed record BatteryProbeResult(
 
         var resultHeader = BuildResultHeader(report, resolvedDevices);
         var toolTipText = BuildMultiDeviceTooltip(resolvedDevices);
-        var diagnosticSource = resolvedDevices.FirstOrDefault(device => device.HasUnexpectedFailure)
-            ?? (iconBatteryPercent is null ? resolvedDevices.FirstOrDefault(device => device.Snapshot is DevicePowerFailureSnapshot) : null);
+        var diagnosticSource = resolvedDevices.FirstOrDefault(device => device.HasUnexpectedFailure);
         var showDiagnostics = diagnosticSource is not null;
         var diagnosticsHeader = diagnosticSource is null
             ? string.Empty
-            : TruncateHeader($"Diagnostics: {LastDiagnosticLine(diagnosticSource.Snapshot.Diagnostics)}");
+            : Truncate($"Diagnostics: {LastDiagnosticLine(diagnosticSource.Snapshot.Diagnostics)}", 80);
 
         return new BatteryProbeResult(
             sections,
@@ -75,8 +72,8 @@ public sealed record BatteryProbeResult(
             _ => "No supported wireless device detected",
         };
         var statusLabel = FormatFailureLabel(report.FailureKind, fallbackTimestamp: null);
-        var diagnosticsHeader = TruncateHeader($"Diagnostics: {LastDiagnosticLine(report.Diagnostics)}");
-        var toolTipText = ClampTooltip($"{AppIdentity.ProductName}\n{deviceDescription}\nStatus: {statusLabel}");
+        var diagnosticsHeader = Truncate($"Diagnostics: {LastDiagnosticLine(report.Diagnostics)}", 80);
+        var toolTipText = $"{AppIdentity.ProductName}\n{deviceDescription}\nStatus: {statusLabel}";
 
         return new BatteryProbeResult(
             [new DeviceBatteryDisplay(deviceDescription, $"Battery: unavailable · {statusLabel}")],
@@ -117,7 +114,7 @@ public sealed record BatteryProbeResult(
         DevicePowerFailureSnapshot failure,
         IReadOnlyDictionary<string, DevicePowerSuccess> lastSuccessfulByDevice)
     {
-        var hasFallback = lastSuccessfulByDevice.TryGetValue(failure.DeviceKey, out var fallback);
+        lastSuccessfulByDevice.TryGetValue(failure.DeviceKey, out var fallback);
         var displayName = fallback?.DeviceDisplayName ?? failure.DeviceDisplayName;
         int? effectiveBattery = fallback?.BatteryPercent;
         var effectiveIsCharging = fallback?.IsCharging;
@@ -128,8 +125,6 @@ public sealed record BatteryProbeResult(
             ? $"Battery: {percent}% · {statusLabel}"
             : $"Battery: unavailable · {statusLabel}";
 
-        var hasUnexpectedFailure = !(failure.FailureKind == PowerFailureKind.DeviceSleeping && hasFallback);
-
         return new ResolvedDeviceState(
             failure,
             displayName,
@@ -138,7 +133,7 @@ public sealed record BatteryProbeResult(
             fallback?.Timestamp ?? failure.Timestamp,
             menuBatteryStatusLine,
             tooltipStatusLabel,
-            hasUnexpectedFailure);
+            HasUnexpectedFailure: failure.FailureKind != PowerFailureKind.DeviceSleeping);
     }
 
     private static string BuildResultHeader(PowerProbeReport report, IReadOnlyList<ResolvedDeviceState> devices)
@@ -179,7 +174,7 @@ public sealed record BatteryProbeResult(
             }
         }
 
-        return ClampTooltip(builder.ToString());
+        return builder.ToString();
     }
 
     private static string FormatActiveStatusLabel(bool? isCharging)
@@ -222,16 +217,11 @@ public sealed record BatteryProbeResult(
         return lines.LastOrDefault() ?? "no details";
     }
 
-    private static string TruncateHeader(string value)
+    internal static string Truncate(string value, int maxLength)
     {
-        return value.Length <= 80 ? value : string.Concat(value.AsSpan(0, 77), "...");
-    }
-
-    private static string ClampTooltip(string value)
-    {
-        return value.Length <= MaxTooltipLength
+        return value.Length <= maxLength
             ? value
-            : string.Concat(value.AsSpan(0, MaxTooltipLength - 3), "...");
+            : string.Concat(value.AsSpan(0, maxLength - 3), "...");
     }
 
     private static string GetTooltipDeviceName(string deviceDisplayName)

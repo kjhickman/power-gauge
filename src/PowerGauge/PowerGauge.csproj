@@ -6,11 +6,9 @@
     <Description>Tray battery monitor for supported wireless devices.</Description>
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <ApplicationManifest Condition="'$(OS)' == 'Windows_NT' or $([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win'))">app.manifest</ApplicationManifest>
-    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
   <ItemGroup>
-    <AvaloniaResource Include="Assets\**" />
     <InternalsVisibleTo Include="PowerGauge.Tests" />
   </ItemGroup>
 
@@ -18,10 +16,5 @@
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
-    <PackageReference Include="Avalonia.Fonts.Inter" />
-    <PackageReference Include="AvaloniaUI.DiagnosticsSupport">
-      <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
-      <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
-    </PackageReference>
   </ItemGroup>
 </Project>

@@ -114,9 +114,6 @@ internal sealed class GitHubReleaseAssetDto
 
     [JsonPropertyName("digest")]
     public string? Digest { get; set; }
-
-    [JsonPropertyName("size")]
-    public long Size { get; set; }
 }
 
 [JsonSerializable(typeof(GitHubReleaseDto))]

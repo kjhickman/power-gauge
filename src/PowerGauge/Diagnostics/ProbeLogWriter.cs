@@ -7,12 +7,10 @@ namespace PowerGauge.Diagnostics;
 
 public sealed class ProbeLogWriter
 {
-    private readonly string? _customLogDirectory;
     private readonly bool _isEnabled;
 
-    public ProbeLogWriter(string? logDirectory = null, bool isEnabled = true)
+    public ProbeLogWriter(bool isEnabled = true)
     {
-        _customLogDirectory = logDirectory;
         _isEnabled = isEnabled;
     }
 
@@ -27,7 +25,7 @@ public sealed class ProbeLogWriter
 
         try
         {
-            var logDirectory = _customLogDirectory ?? Path.Combine(
+            var logDirectory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 AppIdentity.LogDirectoryName);
             Directory.CreateDirectory(logDirectory);

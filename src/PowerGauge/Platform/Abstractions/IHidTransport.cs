@@ -25,10 +25,6 @@ public interface IHidTransport
 
 public interface IHidDeviceSession : IDisposable
 {
-    bool TrySetFeature(ReadOnlySpan<byte> request, out string error);
-
-    bool TryGetFeature(Span<byte> response, out string error);
-
     bool TryExchangeFeatureReport(
         byte[] request,
         byte[] response,

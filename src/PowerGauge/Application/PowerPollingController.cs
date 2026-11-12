@@ -9,10 +9,10 @@ namespace PowerGauge.Application;
 
 public sealed class PowerPollingController
 {
-    private readonly IDevicePowerReader _powerReader;
+    private readonly CompositeDevicePowerReader _powerReader;
     private readonly Dictionary<string, DevicePowerSuccess> _lastSuccessfulByDevice = new(StringComparer.Ordinal);
 
-    public PowerPollingController(IDevicePowerReader powerReader)
+    public PowerPollingController(CompositeDevicePowerReader powerReader)
     {
         _powerReader = powerReader;
     }

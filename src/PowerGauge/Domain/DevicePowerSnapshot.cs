@@ -46,10 +46,7 @@ public sealed record PowerProbeReport(
     PowerFailureKind FailureKind,
     string ResultDetail,
     string Diagnostics,
-    string? LogFilePath = null)
-{
-    public bool HasAnySuccessfulDevice => Devices.Any(device => device is DevicePowerSuccess);
-}
+    string? LogFilePath = null);
 
 public enum PowerFailureKind
 {
@@ -91,5 +88,25 @@ public static class PowerFailureClassifier
             PowerFailureKind.UnsupportedResponse => "unsupported response",
             _ => "failed",
         };
+    }
+
+    public static (PowerFailureKind FailureKind, string ResultDetail) Summarize(IReadOnlyList<DevicePowerSnapshot> snapshots)
+    {
+        if (snapshots.All(snapshot => snapshot is DevicePowerSuccess))
+        {
+            return (PowerFailureKind.None, "success");
+        }
+
+        if (snapshots.Any(snapshot => snapshot is DevicePowerSuccess))
+        {
+            return (PowerFailureKind.None, "partial");
+        }
+
+        var bestFailure = snapshots
+            .OfType<DevicePowerFailureSnapshot>()
+            .OrderBy(snapshot => GetPrecedence(snapshot.FailureKind))
+            .First();
+
+        return (bestFailure.FailureKind, bestFailure.ResultDetail);
     }
 }

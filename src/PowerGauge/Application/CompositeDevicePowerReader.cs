@@ -8,7 +8,7 @@ using PowerGauge.Domain;
 
 namespace PowerGauge.Application;
 
-public sealed class CompositeDevicePowerReader : IDevicePowerReader
+public sealed class CompositeDevicePowerReader
 {
     private readonly IReadOnlyList<IDevicePowerProvider> _providers;
     private readonly ProbeLogWriter _probeLogWriter;
@@ -24,6 +24,18 @@ public sealed class CompositeDevicePowerReader : IDevicePowerReader
     public PowerProbeReport Probe()
     {
         var timestamp = DateTimeOffset.Now;
+        if (_providers.Count == 0)
+        {
+            var unsupportedReport = new PowerProbeReport(
+                timestamp,
+                [],
+                PowerFailureKind.UnsupportedResponse,
+                "platform unsupported",
+                $"{AppIdentity.ProductName} does not support this operating system yet.");
+
+            return unsupportedReport with { LogFilePath = _probeLogWriter.Write(unsupportedReport) };
+        }
+
         var snapshots = new List<DevicePowerSnapshot>();
         var providerResults = new List<ProviderProbeResult>(_providers.Count);
         var diagnostics = new StringBuilder();
@@ -57,27 +69,7 @@ public sealed class CompositeDevicePowerReader : IDevicePowerReader
     {
         if (snapshots.Count > 0)
         {
-            if (snapshots.All(snapshot => snapshot is DevicePowerSuccess))
-            {
-                return (PowerFailureKind.None, "success");
-            }
-
-            if (snapshots.Any(snapshot => snapshot is DevicePowerSuccess))
-            {
-                return (PowerFailureKind.None, "partial");
-            }
-
-            var topSnapshotFailure = snapshots
-                .OfType<DevicePowerFailureSnapshot>()
-                .OrderBy(snapshot => PowerFailureClassifier.GetPrecedence(snapshot.FailureKind))
-                .First();
-
-            return (topSnapshotFailure.FailureKind, topSnapshotFailure.ResultDetail);
-        }
-
-        if (providerResults.Count == 0)
-        {
-            return (PowerFailureKind.DeviceUnavailable, "no providers");
+            return PowerFailureClassifier.Summarize(snapshots);
         }
 
         var topProviderFailure = providerResults

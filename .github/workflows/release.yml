@@ -36,19 +36,9 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $version = "${{ github.event.inputs.version }}"
-          }
-          else {
-            $tag = "${{ github.event.release.tag_name }}"
-            if ([string]::IsNullOrWhiteSpace($tag)) {
-              throw "Release tag name is empty."
-            }
-
-            $version = $tag.StartsWith("v") ? $tag.Substring(1) : $tag
-          }
-
-          "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $version = ("${{ inputs.version || github.event.release.tag_name }}").Trim().TrimStart('v', 'V')
+          if (-not $version) { throw "Release version is empty." }
+          "value=$version" >> $env:GITHUB_OUTPUT
 
       - name: Build release assets
         shell: pwsh
@@ -99,19 +89,9 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $version = "${{ github.event.inputs.version }}"
-          }
-          else {
-            $tag = "${{ github.event.release.tag_name }}"
-            if ([string]::IsNullOrWhiteSpace($tag)) {
-              throw "Release tag name is empty."
-            }
-
-            $version = $tag.StartsWith("v") ? $tag.Substring(1) : $tag
-          }
-
-          "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $version = ("${{ inputs.version || github.event.release.tag_name }}").Trim().TrimStart('v', 'V')
+          if (-not $version) { throw "Release version is empty." }
+          "value=$version" >> $env:GITHUB_OUTPUT
 
       - name: Build release assets
         shell: pwsh

@@ -51,18 +51,7 @@ New-Item -ItemType Directory -Path $macOsDir -Force | Out-Null
 New-Item -ItemType Directory -Path $resourcesDir -Force | Out-Null
 
 Write-Host "Copying app files from $publishDir..."
-$publishFiles = Get-ChildItem -Path $publishDir -Recurse -File | Where-Object { $_.Extension -ne '.pdb' }
-foreach ($file in $publishFiles) {
-    $relativePath = [System.IO.Path]::GetRelativePath($publishDir, $file.FullName)
-    $destinationPath = Join-Path $macOsDir $relativePath
-    $destinationDirectory = Split-Path -Parent $destinationPath
-
-    if (-not (Test-Path $destinationDirectory)) {
-        New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
-    }
-
-    Copy-Item $file.FullName -Destination $destinationPath
-}
+Copy-Item -Path (Join-Path $publishDir "*") -Destination $macOsDir -Recurse -Exclude "*.pdb"
 
 $executablePath = Join-Path $macOsDir $appName
 if (-not (Test-Path $executablePath)) {

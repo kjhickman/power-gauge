@@ -23,14 +23,7 @@ public sealed class WindowsHidTransport : IHidTransport
                 "Windows HID transport unavailable on this platform.");
         }
 
-        var handle = CreateFile(
-            device.DevicePath,
-            0,
-            FileShareRead | FileShareWrite,
-            IntPtr.Zero,
-            OpenExisting,
-            0,
-            IntPtr.Zero);
+        var handle = OpenDevice(device.DevicePath);
 
         if (handle.IsInvalid)
         {
@@ -44,6 +37,18 @@ public sealed class WindowsHidTransport : IHidTransport
         return new WindowsHidDeviceSession(handle);
     }
 
+    internal static SafeFileHandle OpenDevice(string devicePath)
+    {
+        return CreateFile(
+            devicePath,
+            0,
+            FileShareRead | FileShareWrite,
+            IntPtr.Zero,
+            OpenExisting,
+            0,
+            IntPtr.Zero);
+    }
+
     private sealed class WindowsHidDeviceSession : IHidDeviceSession
     {
         private readonly SafeFileHandle _handle;
@@ -53,7 +58,7 @@ public sealed class WindowsHidTransport : IHidTransport
             _handle = handle;
         }
 
-        public bool TrySetFeature(ReadOnlySpan<byte> request, out string error)
+        private bool TrySetFeature(ReadOnlySpan<byte> request, out string error)
         {
             if (request.IsEmpty)
             {
@@ -71,7 +76,7 @@ public sealed class WindowsHidTransport : IHidTransport
             return true;
         }
 
-        public bool TryGetFeature(Span<byte> response, out string error)
+        private bool TryGetFeature(Span<byte> response, out string error)
         {
             if (response.IsEmpty)
             {

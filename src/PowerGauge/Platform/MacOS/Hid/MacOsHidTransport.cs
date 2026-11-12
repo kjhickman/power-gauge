@@ -93,50 +93,6 @@ public sealed class MacOsHidTransport : IHidTransport
             _device = device;
         }
 
-        public bool TrySetFeature(ReadOnlySpan<byte> request, out string error)
-        {
-            if (request.IsEmpty)
-            {
-                error = "IOHIDDeviceSetReport failed: empty request.";
-                return false;
-            }
-
-            var buffer = request.ToArray();
-            var result = IOHIDDeviceSetReport(_device, MacOsHidInterop.FeatureReportType, buffer[0], buffer, (nint)buffer.Length);
-            if (result == 0)
-            {
-                error = string.Empty;
-                return true;
-            }
-
-            error = $"IOHIDDeviceSetReport failed: 0x{result:x8}";
-            return false;
-        }
-
-        public bool TryGetFeature(Span<byte> response, out string error)
-        {
-            if (response.IsEmpty)
-            {
-                error = "IOHIDDeviceGetReport failed: empty response buffer.";
-                return false;
-            }
-
-            var reportId = response[0];
-            var buffer = new byte[response.Length];
-            nint payloadSize = buffer.Length;
-            var result = IOHIDDeviceGetReport(_device, MacOsHidInterop.FeatureReportType, reportId, buffer, ref payloadSize);
-            if (result != 0)
-            {
-                error = $"IOHIDDeviceGetReport failed: 0x{result:x8}";
-                return false;
-            }
-
-            response.Clear();
-            buffer.AsSpan(0, Math.Min((int)payloadSize, response.Length)).CopyTo(response);
-            error = string.Empty;
-            return true;
-        }
-
         public bool TryExchangeFeatureReport(
             byte[] request,
             byte[] response,

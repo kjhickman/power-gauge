@@ -1,13 +1,14 @@
-using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Markup.Xaml;
+using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using PowerGauge.Application;
+using PowerGauge.Devices;
 using PowerGauge.Devices.Hid;
 using PowerGauge.Diagnostics;
-using PowerGauge.Platform;
 using PowerGauge.Platform.Abstractions;
 using PowerGauge.Platform.MacOS.Hid;
 using PowerGauge.Platform.Windows.Hid;
@@ -16,7 +17,7 @@ using PowerGauge.Updates;
 
 namespace PowerGauge;
 
-public partial class App : Avalonia.Application
+public sealed class App : Avalonia.Application
 {
     private readonly PowerPollingController _pollingController = new(CreatePowerReader());
     private readonly UpdateController _updateController = new();
@@ -26,21 +27,22 @@ public partial class App : Avalonia.Application
 
     public override void Initialize()
     {
-        AvaloniaXamlLoader.Load(this);
+        Name = AppIdentity.ProductName;
+        Styles.Add(new FluentTheme());
     }
 
     public override void OnFrameworkInitializationCompleted()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.ShutdownMode = Avalonia.Controls.ShutdownMode.OnExplicitShutdown;
+            desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
         }
 
         _trayPresenter = new TrayPresenter(RefreshTrayState, HandleUpdateMenuAction, Quit);
         _updateController.StatusChanged += status => Dispatcher.UIThread.Post(() => _trayPresenter?.ApplyUpdateStatus(status));
         _trayPresenter.ApplyUpdateStatus(_updateController.CurrentStatus);
 
-        Avalonia.Controls.TrayIcon.SetIcons(this, [_trayPresenter.TrayIcon]);
+        TrayIcon.SetIcons(this, [_trayPresenter.TrayIcon]);
         StartRefreshLoop();
         StartUpdateCheckLoop();
         RefreshTrayState();
@@ -106,28 +108,22 @@ public partial class App : Avalonia.Application
         }
     }
 
-    private static IDevicePowerReader CreatePowerReader()
+    private static CompositeDevicePowerReader CreatePowerReader()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return CreateHidPowerReader(new WindowsHidDeviceEnumerator(), new WindowsHidTransport());
-        }
+        IReadOnlyList<IDevicePowerProvider> providers = OperatingSystem.IsWindows()
+            ? [CreateHidProvider(new WindowsHidDeviceEnumerator(), new WindowsHidTransport())]
+            : OperatingSystem.IsMacOS()
+                ? [CreateHidProvider(new MacOsHidDeviceEnumerator(), new MacOsHidTransport())]
+                : [];
 
-        if (OperatingSystem.IsMacOS())
-        {
-            return CreateHidPowerReader(new MacOsHidDeviceEnumerator(), new MacOsHidTransport());
-        }
-
-        return new UnsupportedDevicePowerReader();
+        return new CompositeDevicePowerReader(providers, new ProbeLogWriter());
     }
 
-    private static IDevicePowerReader CreateHidPowerReader(IHidDeviceEnumerator deviceEnumerator, IHidTransport transport)
+    private static HidDevicePowerProvider CreateHidProvider(IHidDeviceEnumerator deviceEnumerator, IHidTransport transport)
     {
-        var hidProvider = new HidDevicePowerProvider(
+        return new HidDevicePowerProvider(
             deviceEnumerator,
             transport,
             HidDevicePowerProvider.CreateDefaultDrivers());
-
-        return new CompositeDevicePowerReader([hidProvider], new ProbeLogWriter());
     }
 }

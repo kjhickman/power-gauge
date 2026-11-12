@@ -15,9 +15,6 @@ public sealed class WindowsHidDeviceEnumerator : IHidDeviceEnumerator
     private const uint DigcfDeviceInterface = 0x00000010;
     private const int ErrorInsufficientBuffer = 122;
     private const int ErrorNoMoreItems = 259;
-    private const uint FileShareRead = 0x00000001;
-    private const uint FileShareWrite = 0x00000002;
-    private const uint OpenExisting = 3;
     private const int HidpStatusSuccess = 0x00110000;
     private static readonly IntPtr InvalidDeviceInfoSet = new(-1);
 
@@ -100,14 +97,7 @@ public sealed class WindowsHidDeviceEnumerator : IHidDeviceEnumerator
     {
         var fallback = CreateFallbackDeviceInfo(devicePath);
 
-        using var handle = CreateFile(
-            devicePath,
-            0,
-            FileShareRead | FileShareWrite,
-            IntPtr.Zero,
-            OpenExisting,
-            0,
-            IntPtr.Zero);
+        using var handle = WindowsHidTransport.OpenDevice(devicePath);
 
         if (handle.IsInvalid)
         {
@@ -214,16 +204,6 @@ public sealed class WindowsHidDeviceEnumerator : IHidDeviceEnumerator
     [DllImport("setupapi.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetupDiDestroyDeviceInfoList(IntPtr deviceInfoSet);
-
-    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern SafeFileHandle CreateFile(
-        string fileName,
-        uint desiredAccess,
-        uint shareMode,
-        IntPtr securityAttributes,
-        uint creationDisposition,
-        uint flagsAndAttributes,
-        IntPtr templateFile);
 
     [DllImport("hid.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

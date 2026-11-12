@@ -191,6 +191,31 @@ public sealed class MultiVendorArchitectureTests
     }
 
     [Fact]
+    public async Task PollingController_DoesNotShowDiagnostics_WhenDeviceStartsOffOrSleeping()
+    {
+        var provider = new StubProvider(ts =>
+        {
+            var sleeping = new DevicePowerFailureSnapshot(
+                "viper-ultimate",
+                DeviceKind.Mouse,
+                ts,
+                "Razer Viper Ultimate (Wireless)",
+                PowerFailureKind.DeviceSleeping,
+                "device sleeping",
+                "Battery transaction 0x1f response: 04 1f");
+
+            return new ProviderProbeResult([sleeping], sleeping.FailureKind, sleeping.ResultDetail, sleeping.Diagnostics);
+        });
+
+        var controller = new PowerPollingController(new CompositeDevicePowerReader([provider], ProbeLogWriter.Disabled));
+        var result = await controller.RefreshAsync();
+
+        Assert.Null(result.IconBatteryPercent);
+        Assert.Equal("Battery: unavailable · Sleeping", result.DeviceSections[0].BatteryStatusHeader);
+        Assert.False(result.ShowDiagnostics);
+    }
+
+    [Fact]
     public void HidDevicePowerProvider_MultiInterfaceFailure_PrefersSleepingOrPermissionOverUnsupported()
     {
         var interface1 = new HidDeviceInfo("dev-col01", RazerProtocol.VendorId, 0x00b4, 90, "Naga");

@@ -40,11 +40,6 @@ internal sealed class FakeHidTransport : IHidTransport
         _handlers[devicePath] = _ => new HidOpenResult(session);
     }
 
-    public void RegisterOpenFailure(string devicePath, PowerFailureKind failureKind, string error)
-    {
-        _handlers[devicePath] = _ => new HidOpenFailure(failureKind, error);
-    }
-
     public HidOpenResult Open(HidDeviceInfo device)
     {
         OpenCallCount++;
@@ -74,18 +69,6 @@ internal sealed class FakeHidDeviceSession : IHidDeviceSession
     public bool IsDisposed { get; private set; }
 
     public int ExchangeCallCount { get; private set; }
-
-    public bool TrySetFeature(ReadOnlySpan<byte> request, out string error)
-    {
-        error = string.Empty;
-        return true;
-    }
-
-    public bool TryGetFeature(Span<byte> response, out string error)
-    {
-        error = string.Empty;
-        return true;
-    }
 
     public bool TryExchangeFeatureReport(
         byte[] request,
