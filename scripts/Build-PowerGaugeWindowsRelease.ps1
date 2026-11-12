@@ -52,7 +52,7 @@ if (Test-Path $packageDir) {
 New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
 
 Write-Host "Preparing package contents..."
-Copy-Item -Path (Join-Path $publishDir "*") -Destination $packageDir -Recurse -Exclude "*.pdb"
+Copy-Item -Path (Join-Path $publishDir "*") -Destination $packageDir -Recurse -Exclude "*.pdb", "av_libglesv2.dll"
 
 New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 
