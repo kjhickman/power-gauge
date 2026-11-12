@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Styling;
 using Avalonia.VisualTree;
 using System.Linq;
@@ -53,5 +54,33 @@ public sealed class TrayMenuThemeTests
         ((IPseudoClasses)disabledItem.Classes).Set(":pointerover", true);
         disabledItem.IsSelected = true;
         Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(disabledBorder.Background).Color);
+    }
+
+    [Fact]
+    public void TrayIconRenderer_UpdatesPaletteFromPlatformColors_AndPicksReadableForegrounds()
+    {
+        var renderer = new TrayIconRenderer();
+
+        var darkColors = new PlatformColorValues
+        {
+            ThemeVariant = PlatformThemeVariant.Dark,
+            AccentColor1 = Color.Parse("#0078D4"),
+        };
+        Assert.True(renderer.UpdateTheme(TrayIconThemePalette.FromPlatformColors(darkColors)));
+        Assert.False(renderer.UpdateTheme(TrayIconThemePalette.FromPlatformColors(darkColors)));
+
+        Assert.Equal(Brushes.White, TrayIconRenderer.GetReadableForeground(renderer.GetBatteryBackgroundColor(15)));
+        Assert.Equal(Brushes.Black, TrayIconRenderer.GetReadableForeground(renderer.GetBatteryBackgroundColor(35)));
+        Assert.Equal(Brushes.White, TrayIconRenderer.GetReadableForeground(renderer.GetBatteryBackgroundColor(85)));
+        var darkBorder = renderer.GetBorderColor();
+
+        var lightColors = new PlatformColorValues
+        {
+            ThemeVariant = PlatformThemeVariant.Light,
+            AccentColor1 = Color.Parse("#FFB900"),
+        };
+        Assert.True(renderer.UpdateTheme(TrayIconThemePalette.FromPlatformColors(lightColors)));
+        Assert.NotEqual(darkBorder, renderer.GetBorderColor());
+        Assert.Equal(0, renderer.CachedBatteryIconCount);
     }
 }

@@ -38,7 +38,14 @@ public sealed class App : Avalonia.Application
             desktop.Exit += (_, _) => _pollingController.Dispose();
         }
 
-        _trayPresenter = new TrayPresenter(RefreshTrayState, HandleUpdateMenuAction, Quit);
+        var platformSettings = PlatformSettings;
+        _trayPresenter = new TrayPresenter(RefreshTrayState, HandleUpdateMenuAction, Quit, platformSettings?.GetColorValues());
+        if (platformSettings is not null)
+        {
+            platformSettings.ColorValuesChanged += (_, colors) =>
+                Dispatcher.UIThread.Post(() => _trayPresenter?.ApplyTheme(colors));
+        }
+
         _pollingController.ResultUpdated += result => Dispatcher.UIThread.Post(() => _trayPresenter?.Apply(result));
         _updateController.StatusChanged += status => Dispatcher.UIThread.Post(() => _trayPresenter?.ApplyUpdateStatus(status));
         _trayPresenter.ApplyUpdateStatus(_updateController.CurrentStatus);

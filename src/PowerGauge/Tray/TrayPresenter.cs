@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Avalonia.Controls;
+using Avalonia.Platform;
 using PowerGauge.Updates;
 
 namespace PowerGauge.Tray;
@@ -19,9 +20,14 @@ public sealed class TrayPresenter
     private readonly NativeMenuItem _updateMenuItem;
     private string _baseToolTipText = AppIdentity.ProductName;
     private string? _updateTooltipNotice;
+    private int? _currentBatteryPercent;
 
-    public TrayPresenter(Action refreshNow, Action updateAction, Action quit)
+    public TrayPresenter(Action refreshNow, Action updateAction, Action quit, PlatformColorValues? initialColors = null)
     {
+        if (initialColors is not null)
+        {
+            _trayIconRenderer.UpdateTheme(TrayIconThemePalette.FromPlatformColors(initialColors));
+        }
         _resultMenuItem = CreateReadOnlyItem("Last updated: waiting to start");
         _versionMenuItem = CreateReadOnlyItem($"Version: {AppIdentity.DisplayVersion}");
         _diagnosticsMenuItem = CreateReadOnlyItem(string.Empty);
@@ -69,9 +75,18 @@ public sealed class TrayPresenter
         _diagnosticsMenuItem.IsVisible = result.ShowDiagnostics;
         _logMenuItem.Header = result.LogFilePath is null ? "Log: unavailable" : $"Log: {result.LogFilePath}";
         _logMenuItem.IsVisible = result.ShowDiagnostics;
-        _trayIcon.Icon = _trayIconRenderer.Render(result.IconBatteryPercent);
+        _currentBatteryPercent = result.IconBatteryPercent;
+        _trayIcon.Icon = _trayIconRenderer.Render(_currentBatteryPercent);
         _baseToolTipText = result.ToolTipText;
         UpdateToolTipText();
+    }
+
+    public void ApplyTheme(PlatformColorValues colorValues)
+    {
+        if (_trayIconRenderer.UpdateTheme(TrayIconThemePalette.FromPlatformColors(colorValues)))
+        {
+            _trayIcon.Icon = _trayIconRenderer.Render(_currentBatteryPercent);
+        }
     }
 
     public void ApplyUpdateStatus(TrayUpdateStatus updateStatus)
