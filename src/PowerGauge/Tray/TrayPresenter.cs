@@ -1,14 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Avalonia.Controls;
 using Avalonia.Platform;
 using PowerGauge.Updates;
 
 namespace PowerGauge.Tray;
 
-public sealed class TrayPresenter
+public sealed partial class TrayPresenter
 {
     private const int MaxTooltipLength = 127;
+    private const uint WmTrayMouse = 0x0800; // WM_USER + 1024 in Avalonia.Win32.TrayIconImpl
+    private const int WmRightButtonUp = 0x0205;
     private readonly TrayIconRenderer _trayIconRenderer = new();
     private readonly TrayIcon _trayIcon;
     private readonly NativeMenu _menu;
@@ -21,6 +25,7 @@ public sealed class TrayPresenter
     private string _baseToolTipText = AppIdentity.ProductName;
     private string? _updateTooltipNotice;
     private int? _currentBatteryPercent;
+    private IntPtr _win32MessageWindow;
 
     public TrayPresenter(Action refreshNow, Action updateAction, Action quit, PlatformColorValues? initialColors = null)
     {
@@ -60,6 +65,11 @@ public sealed class TrayPresenter
             Menu = _menu,
             IsVisible = true,
         };
+
+        if (OperatingSystem.IsWindows())
+        {
+            _trayIcon.Clicked += (_, _) => OpenWindowsTrayMenu();
+        }
 
         _diagnosticsMenuItem.IsVisible = false;
         _logMenuItem.IsVisible = false;
@@ -143,6 +153,43 @@ public sealed class TrayPresenter
         }
     }
 
+    private void OpenWindowsTrayMenu()
+    {
+        if (_win32MessageWindow == IntPtr.Zero)
+        {
+            IntPtr found = IntPtr.Zero;
+            unsafe
+            {
+                _ = EnumThreadWindows(GetCurrentThreadId(), &FindAvaloniaMessageWindow, (IntPtr)(&found));
+            }
+
+            _win32MessageWindow = found;
+        }
+
+        if (_win32MessageWindow != IntPtr.Zero)
+        {
+            _ = PostMessageW(_win32MessageWindow, WmTrayMouse, new IntPtr(1), new IntPtr(WmRightButtonUp));
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static unsafe int FindAvaloniaMessageWindow(IntPtr hWnd, IntPtr lParam)
+    {
+        Span<byte> rawBuffer = stackalloc byte[128];
+        var charCount = GetClassNameW(hWnd, rawBuffer, rawBuffer.Length / sizeof(char));
+        if (charCount > 0)
+        {
+            var className = MemoryMarshal.Cast<byte, char>(rawBuffer)[..charCount];
+            if (className.StartsWith("AvaloniaMessageWindow ", StringComparison.Ordinal))
+            {
+                *(IntPtr*)lParam = hWnd;
+                return 0;
+            }
+        }
+
+        return 1;
+    }
+
     private static NativeMenuItem CreateReadOnlyItem(string header)
     {
         return new NativeMenuItem(header)
@@ -150,6 +197,23 @@ public sealed class TrayPresenter
             IsEnabled = false,
         };
     }
+
+    [LibraryImport("kernel32.dll")]
+    private static partial uint GetCurrentThreadId();
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static unsafe partial bool EnumThreadWindows(
+        uint dwThreadId,
+        delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int> lpfn,
+        IntPtr lParam);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    private static partial int GetClassNameW(IntPtr hWnd, Span<byte> lpClassName, int nMaxCount);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     private sealed record DeviceMenuItems(NativeMenuItem DeviceItem, NativeMenuItem BatteryStatusItem);
 }
