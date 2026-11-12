@@ -20,12 +20,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
-      - name: Setup .NET 10 SDK
-        uses: actions/setup-dotnet@v5
+      - name: Setup .NET 11 SDK
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 11.0.x
 
       - name: Install Inno Setup
         shell: pwsh
@@ -88,12 +88,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
-      - name: Setup .NET 10 SDK
-        uses: actions/setup-dotnet@v5
+      - name: Setup .NET 11 SDK
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 11.0.x
 
       - name: Derive release version
         id: version
