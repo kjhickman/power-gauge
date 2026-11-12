@@ -18,7 +18,7 @@ namespace PowerGauge;
 
 public sealed class App : Avalonia.Application
 {
-    private readonly PowerPollingController _pollingController = new(CreatePowerReader());
+    private readonly PowerPollingController _pollingController = new(CreatePowerReader(), CreateDeviceChangeMonitor());
     private readonly UpdateController _updateController = new();
     private TrayPresenter? _trayPresenter;
     private DispatcherTimer? _refreshTimer;
@@ -35,9 +35,11 @@ public sealed class App : Avalonia.Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            desktop.Exit += (_, _) => _pollingController.Dispose();
         }
 
         _trayPresenter = new TrayPresenter(RefreshTrayState, HandleUpdateMenuAction, Quit);
+        _pollingController.ResultUpdated += result => Dispatcher.UIThread.Post(() => _trayPresenter?.Apply(result));
         _updateController.StatusChanged += status => Dispatcher.UIThread.Post(() => _trayPresenter?.ApplyUpdateStatus(status));
         _trayPresenter.ApplyUpdateStatus(_updateController.CurrentStatus);
 
@@ -96,7 +98,7 @@ public sealed class App : Avalonia.Application
             _trayPresenter.Apply(_pollingController.CreateInitialResult());
         }
 
-        _trayPresenter.Apply(await _pollingController.RefreshAsync());
+        await _pollingController.RefreshAsync();
     }
 
     private void Quit()
@@ -116,6 +118,21 @@ public sealed class App : Avalonia.Application
                 : [];
 
         return new CompositeDevicePowerReader(providers, new ProbeLogWriter());
+    }
+
+    private static IDeviceChangeMonitor? CreateDeviceChangeMonitor()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return new WindowsHidDeviceChangeMonitor();
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return new MacOsHidDeviceChangeMonitor();
+        }
+
+        return null;
     }
 
     private static HidDevicePowerProvider CreateHidProvider(IHidDeviceEnumerator deviceEnumerator, IHidTransport transport)

@@ -192,7 +192,7 @@ public sealed partial class WindowsHidDeviceEnumerator : IHidDeviceEnumerator
     }
 
     [LibraryImport("hid.dll")]
-    private static partial void HidD_GetHidGuid(out Guid hidGuid);
+    internal static partial void HidD_GetHidGuid(out Guid hidGuid);
 
     [LibraryImport("setupapi.dll", EntryPoint = "SetupDiGetClassDevsW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     private static partial IntPtr SetupDiGetClassDevs(in Guid classGuid, string? enumerator, IntPtr hwndParent, uint flags);
