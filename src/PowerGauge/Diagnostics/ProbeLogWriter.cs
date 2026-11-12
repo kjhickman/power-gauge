@@ -45,11 +45,25 @@ public sealed class ProbeLogWriter
                 builder.AppendLine($"DeviceKey: {device.DeviceKey}");
                 builder.AppendLine($"DeviceKind: {device.DeviceKind}");
                 builder.AppendLine($"DeviceDisplayName: {device.DeviceDisplayName}");
-                builder.AppendLine($"BatteryPercent: {(device.BatteryPercent is int battery ? battery : "n/a")}");
-                builder.AppendLine($"IsCharging: {(device.IsCharging is bool isCharging ? isCharging : "n/a")}");
-                builder.AppendLine($"IsSuccessful: {device.IsSuccessful}");
-                builder.AppendLine($"FailureKind: {device.FailureKind}");
-                builder.AppendLine($"ResultDetail: {device.ResultDetail}");
+
+                switch (device)
+                {
+                    case DevicePowerSuccess success:
+                        builder.AppendLine($"BatteryPercent: {success.BatteryPercent}");
+                        builder.AppendLine($"IsCharging: {(success.IsCharging is bool isCharging ? isCharging : "n/a")}");
+                        builder.AppendLine("IsSuccessful: True");
+                        builder.AppendLine($"FailureKind: {PowerFailureKind.None}");
+                        builder.AppendLine("ResultDetail: success");
+                        break;
+
+                    case DevicePowerFailureSnapshot failure:
+                        builder.AppendLine("BatteryPercent: n/a");
+                        builder.AppendLine("IsCharging: n/a");
+                        builder.AppendLine("IsSuccessful: False");
+                        builder.AppendLine($"FailureKind: {failure.FailureKind}");
+                        builder.AppendLine($"ResultDetail: {failure.ResultDetail}");
+                        break;
+                }
             }
 
             builder.AppendLine("---");

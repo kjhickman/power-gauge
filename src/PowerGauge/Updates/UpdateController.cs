@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace PowerGauge.Updates;
@@ -10,37 +11,101 @@ public sealed record TrayUpdateStatus(
     bool IsActionEnabled,
     string? TooltipNotice = null);
 
+internal sealed record AvailableRelease(
+    AppVersion Version,
+    string HtmlUrl,
+    GitHubReleaseAssetDto? Asset);
+
+internal sealed record IdleUpdateState(string? Note = null);
+
+internal sealed record CheckingForUpdatesState(AvailableRelease? PreviousRelease);
+
+internal sealed record UpdateAvailableState(AvailableRelease Release);
+
+internal sealed record BrowserOpenFailedState(AvailableRelease Release);
+
+internal sealed record DownloadingUpdateState(AvailableRelease Release);
+
+internal sealed record InstallingUpdateState(AvailableRelease Release);
+
+internal sealed record UpdateFailedState(AvailableRelease Release);
+
+internal union UpdateState(
+    IdleUpdateState,
+    CheckingForUpdatesState,
+    UpdateAvailableState,
+    BrowserOpenFailedState,
+    DownloadingUpdateState,
+    InstallingUpdateState,
+    UpdateFailedState)
+{
+    public bool IsBusy => this is CheckingForUpdatesState or DownloadingUpdateState or InstallingUpdateState;
+
+    public AvailableRelease? AvailableRelease => this switch
+    {
+        CheckingForUpdatesState(var previous) => previous,
+        UpdateAvailableState(var release) => release,
+        BrowserOpenFailedState(var release) => release,
+        DownloadingUpdateState(var release) => release,
+        InstallingUpdateState(var release) => release,
+        UpdateFailedState(var release) => release,
+        IdleUpdateState => null,
+        null => null,
+    };
+}
+
+internal interface IReleaseFeedClient
+{
+    Task<GitHubReleaseDto?> FetchLatestReleaseAsync(CancellationToken cancellationToken = default);
+
+    Task DownloadAssetAsync(string downloadUrl, string destinationPath, string? expectedDigest, CancellationToken cancellationToken = default);
+}
+
 public sealed class UpdateController
 {
-    private readonly GitHubReleaseClient _releaseClient = new();
-    private readonly InstallEnvironmentInfo _installEnvironment = InstallEnvironment.Detect();
-    private AvailableRelease? _availableRelease;
-    private bool _isBusy;
+    private readonly IReleaseFeedClient _releaseClient;
+    private readonly InstallEnvironmentInfo _installEnvironment;
+    private readonly Func<string> _getCurrentVersionString;
+    private readonly Action<string> _openBrowserUrl;
+    private UpdateState _state = new IdleUpdateState();
 
     public UpdateController()
+        : this(
+            new GitHubReleaseClient(),
+            InstallEnvironment.Detect(),
+            () => AppIdentity.DisplayVersion,
+            SelfUpdateApplier.OpenBrowserUrl)
     {
-        CurrentStatus = CreateDefaultStatus();
+    }
+
+    internal UpdateController(
+        IReleaseFeedClient releaseClient,
+        InstallEnvironmentInfo installEnvironment,
+        Func<string> getCurrentVersionString,
+        Action<string> openBrowserUrl)
+    {
+        _releaseClient = releaseClient;
+        _installEnvironment = installEnvironment;
+        _getCurrentVersionString = getCurrentVersionString;
+        _openBrowserUrl = openBrowserUrl;
+        CurrentStatus = FormatStatus(_state);
     }
 
     public event Action<TrayUpdateStatus>? StatusChanged;
 
     public TrayUpdateStatus CurrentStatus { get; private set; }
 
+    internal UpdateState State => _state;
+
     public async Task CheckForUpdatesAsync(bool isManualCheck)
     {
-        if (_isBusy)
+        if (_state.IsBusy)
         {
             return;
         }
 
-        _isBusy = true;
-        if (isManualCheck || _availableRelease is null)
-        {
-            PublishStatus(new TrayUpdateStatus(
-                $"Version: {AppIdentity.DisplayVersion}",
-                "Checking for updates...",
-                false));
-        }
+        var previousRelease = _state.AvailableRelease;
+        TransitionTo(new CheckingForUpdatesState(previousRelease), publishStatus: isManualCheck || previousRelease is null);
 
         try
         {
@@ -51,17 +116,15 @@ public sealed class UpdateController
                 || !AppVersion.TryParse(release.TagName, out var latestVersion)
                 || latestVersion is null)
             {
-                _availableRelease = null;
-                PublishStatus(CreateIdleStatus(isManualCheck ? "up to date" : null));
+                TransitionTo(new IdleUpdateState(isManualCheck ? "up to date" : null));
                 return;
             }
 
-            if (AppVersion.TryParse(AppIdentity.DisplayVersion, out var currentVersion)
+            if (AppVersion.TryParse(_getCurrentVersionString(), out var currentVersion)
                 && currentVersion is not null
                 && latestVersion.CompareTo(currentVersion) <= 0)
             {
-                _availableRelease = null;
-                PublishStatus(CreateIdleStatus(isManualCheck ? "up to date" : null));
+                TransitionTo(new IdleUpdateState(isManualCheck ? "up to date" : null));
                 return;
             }
 
@@ -70,40 +133,34 @@ public sealed class UpdateController
                 ? release.HtmlUrl
                 : $"{AppIdentity.GitHubRepositoryUrl}/releases/latest";
 
-            _availableRelease = new AvailableRelease(latestVersion, htmlUrl, matchedAsset);
-            PublishStatus(CreateUpdateAvailableStatus(_availableRelease));
+            TransitionTo(new UpdateAvailableState(new AvailableRelease(latestVersion, htmlUrl, matchedAsset)));
         }
         catch
         {
-            if (_availableRelease is not null)
+            if (previousRelease is not null)
             {
-                PublishStatus(CreateUpdateAvailableStatus(_availableRelease));
+                TransitionTo(new UpdateAvailableState(previousRelease));
             }
             else
             {
-                PublishStatus(CreateIdleStatus(isManualCheck ? "update check failed" : null));
+                TransitionTo(new IdleUpdateState(isManualCheck ? "update check failed" : null));
             }
-        }
-        finally
-        {
-            _isBusy = false;
         }
     }
 
     public async Task HandleMenuActionAsync(Action requestShutdown)
     {
-        if (_isBusy)
+        if (_state.IsBusy)
         {
             return;
         }
 
-        if (_availableRelease is null)
+        if (_state.AvailableRelease is not { } targetRelease)
         {
             await CheckForUpdatesAsync(isManualCheck: true);
             return;
         }
 
-        var targetRelease = _availableRelease;
         if (!_installEnvironment.SupportsSelfUpdate
             || targetRelease.Asset is null
             || string.IsNullOrWhiteSpace(targetRelease.Asset.BrowserDownloadUrl)
@@ -111,26 +168,17 @@ public sealed class UpdateController
         {
             try
             {
-                SelfUpdateApplier.OpenBrowserUrl(targetRelease.HtmlUrl);
+                _openBrowserUrl(targetRelease.HtmlUrl);
             }
             catch
             {
-                PublishStatus(new TrayUpdateStatus(
-                    $"Version: {AppIdentity.DisplayVersion} (failed to open browser)",
-                    $"Download update ({targetRelease.Version.DisplayTag})",
-                    true,
-                    $"Update available: {targetRelease.Version.DisplayTag}"));
+                TransitionTo(new BrowserOpenFailedState(targetRelease));
             }
 
             return;
         }
 
-        _isBusy = true;
-        PublishStatus(new TrayUpdateStatus(
-            $"Version: {AppIdentity.DisplayVersion} ({targetRelease.Version.DisplayTag} available)",
-            $"Downloading update ({targetRelease.Version.DisplayTag})...",
-            false,
-            $"Downloading {targetRelease.Version.DisplayTag}..."));
+        TransitionTo(new DownloadingUpdateState(targetRelease));
 
         try
         {
@@ -142,58 +190,82 @@ public sealed class UpdateController
                 assetPath,
                 targetRelease.Asset.Digest);
 
-            PublishStatus(new TrayUpdateStatus(
-                $"Version: {AppIdentity.DisplayVersion} (installing {targetRelease.Version.DisplayTag}...)",
-                $"Installing update ({targetRelease.Version.DisplayTag})...",
-                false));
+            TransitionTo(new InstallingUpdateState(targetRelease));
 
             SelfUpdateApplier.LaunchInstallerAndScheduleRestart(_installEnvironment, assetPath, stagingDir);
             requestShutdown();
         }
         catch
         {
-            _isBusy = false;
-            PublishStatus(new TrayUpdateStatus(
-                $"Version: {AppIdentity.DisplayVersion} (update failed)",
-                $"Retry update ({targetRelease.Version.DisplayTag})",
-                true,
-                $"Update available: {targetRelease.Version.DisplayTag}"));
+            TransitionTo(new UpdateFailedState(targetRelease));
         }
     }
 
-    private TrayUpdateStatus CreateUpdateAvailableStatus(AvailableRelease release)
+    private void TransitionTo(UpdateState nextState, bool publishStatus = true)
     {
-        var canSelfInstall = _installEnvironment.SupportsSelfUpdate && release.Asset is not null;
-        var actionLabel = canSelfInstall
-            ? $"Install update ({release.Version.DisplayTag})"
-            : $"Download update ({release.Version.DisplayTag})";
+        _state = nextState;
+        if (!publishStatus)
+        {
+            return;
+        }
 
-        return new TrayUpdateStatus(
-            $"Version: {AppIdentity.DisplayVersion} ({release.Version.DisplayTag} available)",
-            actionLabel,
-            true,
-            $"Update available: {release.Version.DisplayTag}");
+        CurrentStatus = FormatStatus(nextState);
+        StatusChanged?.Invoke(CurrentStatus);
     }
 
-    private static TrayUpdateStatus CreateDefaultStatus() => CreateIdleStatus(note: null);
-
-    private static TrayUpdateStatus CreateIdleStatus(string? note)
+    private TrayUpdateStatus FormatStatus(UpdateState state)
     {
-        var versionHeader = string.IsNullOrWhiteSpace(note)
-            ? $"Version: {AppIdentity.DisplayVersion}"
-            : $"Version: {AppIdentity.DisplayVersion} ({note})";
+        var displayVersion = _getCurrentVersionString();
 
-        return new TrayUpdateStatus(versionHeader, "Check for updates", true);
+        return state switch
+        {
+            IdleUpdateState(var note) => new TrayUpdateStatus(
+                string.IsNullOrWhiteSpace(note)
+                    ? $"Version: {displayVersion}"
+                    : $"Version: {displayVersion} ({note})",
+                "Check for updates",
+                IsActionEnabled: true),
+
+            CheckingForUpdatesState => new TrayUpdateStatus(
+                $"Version: {displayVersion}",
+                "Checking for updates...",
+                IsActionEnabled: false),
+
+            UpdateAvailableState(var release) => new TrayUpdateStatus(
+                $"Version: {displayVersion} ({release.Version.DisplayTag} available)",
+                _installEnvironment.SupportsSelfUpdate && release.Asset is not null
+                    ? $"Install update ({release.Version.DisplayTag})"
+                    : $"Download update ({release.Version.DisplayTag})",
+                IsActionEnabled: true,
+                $"Update available: {release.Version.DisplayTag}"),
+
+            BrowserOpenFailedState(var release) => new TrayUpdateStatus(
+                $"Version: {displayVersion} (failed to open browser)",
+                $"Download update ({release.Version.DisplayTag})",
+                IsActionEnabled: true,
+                $"Update available: {release.Version.DisplayTag}"),
+
+            DownloadingUpdateState(var release) => new TrayUpdateStatus(
+                $"Version: {displayVersion} ({release.Version.DisplayTag} available)",
+                $"Downloading update ({release.Version.DisplayTag})...",
+                IsActionEnabled: false,
+                $"Downloading {release.Version.DisplayTag}..."),
+
+            InstallingUpdateState(var release) => new TrayUpdateStatus(
+                $"Version: {displayVersion} (installing {release.Version.DisplayTag}...)",
+                $"Installing update ({release.Version.DisplayTag})...",
+                IsActionEnabled: false),
+
+            UpdateFailedState(var release) => new TrayUpdateStatus(
+                $"Version: {displayVersion} (update failed)",
+                $"Retry update ({release.Version.DisplayTag})",
+                IsActionEnabled: true,
+                $"Update available: {release.Version.DisplayTag}"),
+
+            null => new TrayUpdateStatus(
+                $"Version: {displayVersion}",
+                "Check for updates",
+                IsActionEnabled: true),
+        };
     }
-
-    private void PublishStatus(TrayUpdateStatus status)
-    {
-        CurrentStatus = status;
-        StatusChanged?.Invoke(status);
-    }
-
-    private sealed record AvailableRelease(
-        AppVersion Version,
-        string HtmlUrl,
-        GitHubReleaseAssetDto? Asset);
 }

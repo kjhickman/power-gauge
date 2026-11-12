@@ -14,13 +14,13 @@ public delegate HidFeatureResponseStatus HidFeatureResponseClassifier(
     ReadOnlySpan<byte> request,
     ReadOnlySpan<byte> response);
 
+public sealed record HidOpenFailure(PowerFailureKind Kind, string Error);
+
+public union HidOpenResult(IHidDeviceSession, HidOpenFailure);
+
 public interface IHidTransport
 {
-    bool TryOpen(
-        HidDeviceInfo device,
-        out IHidDeviceSession? session,
-        out PowerFailureKind failureKind,
-        out string error);
+    HidOpenResult Open(HidDeviceInfo device);
 }
 
 public interface IHidDeviceSession : IDisposable

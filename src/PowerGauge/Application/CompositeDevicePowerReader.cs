@@ -57,17 +57,18 @@ public sealed class CompositeDevicePowerReader : IDevicePowerReader
     {
         if (snapshots.Count > 0)
         {
-            if (snapshots.All(snapshot => snapshot.IsSuccessful))
+            if (snapshots.All(snapshot => snapshot is DevicePowerSuccess))
             {
                 return (PowerFailureKind.None, "success");
             }
 
-            if (snapshots.Any(snapshot => snapshot.IsSuccessful))
+            if (snapshots.Any(snapshot => snapshot is DevicePowerSuccess))
             {
                 return (PowerFailureKind.None, "partial");
             }
 
             var topSnapshotFailure = snapshots
+                .OfType<DevicePowerFailureSnapshot>()
                 .OrderBy(snapshot => PowerFailureClassifier.GetPrecedence(snapshot.FailureKind))
                 .First();
 

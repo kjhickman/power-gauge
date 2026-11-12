@@ -9,44 +9,35 @@ namespace PowerGauge.Platform.MacOS.Hid;
 
 public sealed class MacOsHidTransport : IHidTransport
 {
-    public bool TryOpen(
-        HidDeviceInfo device,
-        out IHidDeviceSession? session,
-        out PowerFailureKind failureKind,
-        out string error)
+    public HidOpenResult Open(HidDeviceInfo device)
     {
-        session = null;
-        failureKind = PowerFailureKind.None;
-        error = string.Empty;
-
         if (!OperatingSystem.IsMacOS())
         {
-            failureKind = PowerFailureKind.UnsupportedResponse;
-            error = "macOS HID transport unavailable on this platform.";
-            return false;
+            return new HidOpenFailure(
+                PowerFailureKind.UnsupportedResponse,
+                "macOS HID transport unavailable on this platform.");
         }
 
         if (!MacOsHidInterop.TryParseRegistryEntryId(device.DevicePath, out var registryEntryId))
         {
-            failureKind = PowerFailureKind.DeviceUnavailable;
-            error = $"Unsupported macOS HID path: {device.DevicePath}";
-            return false;
+            return new HidOpenFailure(
+                PowerFailureKind.DeviceUnavailable,
+                $"Unsupported macOS HID path: {device.DevicePath}");
         }
 
         var accessStatus = MacOsHidInterop.GetListenAccessStatus();
         if (accessStatus != MacOsHidInterop.HidAccessStatus.Granted && !MacOsHidInterop.RequestListenAccess())
         {
-            failureKind = PowerFailureKind.PermissionRequired;
-            error = $"Input Monitoring permission is required to open wireless HID devices on macOS. Current status: {accessStatus}. Allow {AppIdentity.ProductName} in System Settings > Privacy & Security > Input Monitoring, then relaunch the app.";
-            return false;
+            return new HidOpenFailure(
+                PowerFailureKind.PermissionRequired,
+                $"Input Monitoring permission is required to open wireless HID devices on macOS. Current status: {accessStatus}. Allow {AppIdentity.ProductName} in System Settings > Privacy & Security > Input Monitoring, then relaunch the app.");
         }
 
-        if (!TryFindDevice(registryEntryId, out var manager, out var deviceSet, out var hidDevice, out error))
+        if (!TryFindDevice(registryEntryId, out var manager, out var deviceSet, out var hidDevice, out var error))
         {
             MacOsHidInterop.Release(deviceSet);
             MacOsHidInterop.Release(manager);
-            failureKind = PowerFailureKind.DeviceUnavailable;
-            return false;
+            return new HidOpenFailure(PowerFailureKind.DeviceUnavailable, error);
         }
 
         if (!MacOsHidInterop.TryOpenDevice(hidDevice, out error))
@@ -56,17 +47,15 @@ public sealed class MacOsHidTransport : IHidTransport
 
             if (error.Contains("0xe00002e2", StringComparison.OrdinalIgnoreCase))
             {
-                failureKind = PowerFailureKind.PermissionRequired;
-                error = $"{error} Input Monitoring permission is required to open wireless HID devices on macOS. Allow {AppIdentity.ProductName} in System Settings > Privacy & Security > Input Monitoring, then relaunch the app.";
-                return false;
+                return new HidOpenFailure(
+                    PowerFailureKind.PermissionRequired,
+                    $"{error} Input Monitoring permission is required to open wireless HID devices on macOS. Allow {AppIdentity.ProductName} in System Settings > Privacy & Security > Input Monitoring, then relaunch the app.");
             }
 
-            failureKind = PowerFailureKind.DeviceUnavailable;
-            return false;
+            return new HidOpenFailure(PowerFailureKind.DeviceUnavailable, error);
         }
 
-        session = new MacOsHidDeviceSession(manager, deviceSet, hidDevice);
-        return true;
+        return new MacOsHidDeviceSession(manager, deviceSet, hidDevice);
     }
 
     private static bool TryFindDevice(ulong registryEntryId, out IntPtr manager, out IntPtr deviceSet, out IntPtr matchedDevice, out string error)

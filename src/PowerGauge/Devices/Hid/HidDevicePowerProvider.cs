@@ -97,36 +97,47 @@ public sealed class HidDevicePowerProvider : IDevicePowerProvider
             {
                 deviceDiagnostics.AppendLine($"Trying {DescribeDevice(device)}");
 
-                if (!_transport.TryOpen(device, out var session, out var openFailureKind, out var openError) || session is null)
+                var openResult = _transport.Open(device);
+                if (openResult is HidOpenFailure openFailure)
                 {
-                    deviceDiagnostics.AppendLine($"Open failed: {openError}");
+                    deviceDiagnostics.AppendLine($"Open failed: {openFailure.Error}");
                     bestFailure = SelectHigherPrecedenceFailure(
                         bestFailure,
-                        openFailureKind,
-                        PowerFailureClassifier.GetDefaultDetail(openFailureKind));
+                        openFailure.Kind,
+                        PowerFailureClassifier.GetDefaultDetail(openFailure.Kind));
+                    continue;
+                }
+
+                if (openResult is not IHidDeviceSession session)
+                {
                     continue;
                 }
 
                 using (session)
                 {
                     var outcome = group.Driver.Probe(device, session, deviceDiagnostics);
-                    if (outcome.IsSuccessful)
+                    switch (outcome)
                     {
-                        resolvedSnapshot = new DevicePowerSnapshot(
-                            group.DeviceKey,
-                            group.Driver.DeviceKind,
-                            timestamp,
-                            group.Driver.GetDisplayName(device),
-                            outcome.BatteryPercent,
-                            outcome.IsCharging,
-                            true,
-                            PowerFailureKind.None,
-                            "success",
-                            deviceDiagnostics.ToString());
-                        break;
+                        case DeviceReading reading:
+                            resolvedSnapshot = new DevicePowerSuccess(
+                                group.DeviceKey,
+                                group.Driver.DeviceKind,
+                                timestamp,
+                                group.Driver.GetDisplayName(device),
+                                reading.BatteryPercent,
+                                reading.IsCharging,
+                                deviceDiagnostics.ToString());
+                            break;
+
+                        case DeviceProbeFailure failure:
+                            bestFailure = SelectHigherPrecedenceFailure(bestFailure, failure.Kind, failure.Detail);
+                            break;
                     }
 
-                    bestFailure = SelectHigherPrecedenceFailure(bestFailure, outcome.FailureKind, outcome.ResultDetail);
+                    if (resolvedSnapshot is not null)
+                    {
+                        break;
+                    }
                 }
             }
 
@@ -135,14 +146,11 @@ public sealed class HidDevicePowerProvider : IDevicePowerProvider
                 var (failureKind, resultDetail) = bestFailure
                     ?? (PowerFailureKind.UnsupportedResponse, PowerFailureClassifier.GetDefaultDetail(PowerFailureKind.UnsupportedResponse));
 
-                resolvedSnapshot = new DevicePowerSnapshot(
+                resolvedSnapshot = new DevicePowerFailureSnapshot(
                     group.DeviceKey,
                     group.Driver.DeviceKind,
                     timestamp,
                     group.Driver.GetDisplayName(group.Devices[0]),
-                    null,
-                    null,
-                    false,
                     failureKind,
                     resultDetail,
                     deviceDiagnostics.ToString());
@@ -223,17 +231,18 @@ public sealed class HidDevicePowerProvider : IDevicePowerProvider
 
     private static (PowerFailureKind FailureKind, string ResultDetail) SummarizeOutcome(IReadOnlyList<DevicePowerSnapshot> snapshots)
     {
-        if (snapshots.All(snapshot => snapshot.IsSuccessful))
+        if (snapshots.All(snapshot => snapshot is DevicePowerSuccess))
         {
             return (PowerFailureKind.None, "success");
         }
 
-        if (snapshots.Any(snapshot => snapshot.IsSuccessful))
+        if (snapshots.Any(snapshot => snapshot is DevicePowerSuccess))
         {
             return (PowerFailureKind.None, "partial");
         }
 
         var bestFailure = snapshots
+            .OfType<DevicePowerFailureSnapshot>()
             .OrderBy(snapshot => PowerFailureClassifier.GetPrecedence(snapshot.FailureKind))
             .First();
 

@@ -30,39 +30,31 @@ internal sealed class FakeHidDeviceEnumerator : IHidDeviceEnumerator
 
 internal sealed class FakeHidTransport : IHidTransport
 {
-    private readonly Dictionary<string, Func<HidDeviceInfo, (IHidDeviceSession? Session, PowerFailureKind FailureKind, string Error)>> _handlers =
+    private readonly Dictionary<string, Func<HidDeviceInfo, HidOpenResult>> _handlers =
         new(StringComparer.Ordinal);
 
     public int OpenCallCount { get; private set; }
 
     public void RegisterSession(string devicePath, IHidDeviceSession session)
     {
-        _handlers[devicePath] = _ => (session, PowerFailureKind.None, string.Empty);
+        _handlers[devicePath] = _ => new HidOpenResult(session);
     }
 
     public void RegisterOpenFailure(string devicePath, PowerFailureKind failureKind, string error)
     {
-        _handlers[devicePath] = _ => (null, failureKind, error);
+        _handlers[devicePath] = _ => new HidOpenFailure(failureKind, error);
     }
 
-    public bool TryOpen(
-        HidDeviceInfo device,
-        out IHidDeviceSession? session,
-        out PowerFailureKind failureKind,
-        out string error)
+    public HidOpenResult Open(HidDeviceInfo device)
     {
         OpenCallCount++;
 
         if (_handlers.TryGetValue(device.DevicePath, out var handler))
         {
-            (session, failureKind, error) = handler(device);
-            return session is not null;
+            return handler(device);
         }
 
-        session = null;
-        failureKind = PowerFailureKind.DeviceUnavailable;
-        error = "No fake handler registered for path.";
-        return false;
+        return new HidOpenFailure(PowerFailureKind.DeviceUnavailable, "No fake handler registered for path.");
     }
 }
 

@@ -14,21 +14,13 @@ public sealed class WindowsHidTransport : IHidTransport
     private const uint FileShareWrite = 0x00000002;
     private const uint OpenExisting = 3;
 
-    public bool TryOpen(
-        HidDeviceInfo device,
-        out IHidDeviceSession? session,
-        out PowerFailureKind failureKind,
-        out string error)
+    public HidOpenResult Open(HidDeviceInfo device)
     {
-        session = null;
-        failureKind = PowerFailureKind.None;
-        error = string.Empty;
-
         if (!OperatingSystem.IsWindows())
         {
-            failureKind = PowerFailureKind.UnsupportedResponse;
-            error = "Windows HID transport unavailable on this platform.";
-            return false;
+            return new HidOpenFailure(
+                PowerFailureKind.UnsupportedResponse,
+                "Windows HID transport unavailable on this platform.");
         }
 
         var handle = CreateFile(
@@ -44,13 +36,12 @@ public sealed class WindowsHidTransport : IHidTransport
         {
             var win32Error = Marshal.GetLastWin32Error();
             handle.Dispose();
-            failureKind = PowerFailureKind.DeviceUnavailable;
-            error = $"CreateFile failed: {new Win32Exception(win32Error).Message}";
-            return false;
+            return new HidOpenFailure(
+                PowerFailureKind.DeviceUnavailable,
+                $"CreateFile failed: {new Win32Exception(win32Error).Message}");
         }
 
-        session = new WindowsHidDeviceSession(handle);
-        return true;
+        return new WindowsHidDeviceSession(handle);
     }
 
     private sealed class WindowsHidDeviceSession : IHidDeviceSession

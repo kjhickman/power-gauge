@@ -10,7 +10,7 @@ namespace PowerGauge.Application;
 public sealed class PowerPollingController
 {
     private readonly IDevicePowerReader _powerReader;
-    private readonly Dictionary<string, DevicePowerSnapshot> _lastSuccessfulByDevice = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DevicePowerSuccess> _lastSuccessfulByDevice = new(StringComparer.Ordinal);
 
     public PowerPollingController(IDevicePowerReader powerReader)
     {
@@ -47,9 +47,9 @@ public sealed class PowerPollingController
 
         foreach (var device in report.Devices)
         {
-            if (device.IsSuccessful)
+            if (device is DevicePowerSuccess success)
             {
-                _lastSuccessfulByDevice[device.DeviceKey] = device;
+                _lastSuccessfulByDevice[device.DeviceKey] = success;
             }
         }
 

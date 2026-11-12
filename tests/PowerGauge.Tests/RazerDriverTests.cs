@@ -47,11 +47,10 @@ public sealed class RazerDriverTests
 
         var result = provider.Probe(DateTimeOffset.UtcNow);
 
-        var snapshot = Assert.Single(result.Devices);
+        var snapshot = Assert.IsType<DevicePowerSuccess>(Assert.Single(result.Devices));
         Assert.Equal("viper-ultimate", snapshot.DeviceKey);
         Assert.Equal(DeviceKind.Mouse, snapshot.DeviceKind);
         Assert.Equal("Razer Viper Ultimate (Wired)", snapshot.DeviceDisplayName);
-        Assert.True(snapshot.IsSuccessful);
         Assert.Equal(80, snapshot.BatteryPercent);
         Assert.Equal(true, snapshot.IsCharging);
         Assert.Equal(1, transport.OpenCallCount);
@@ -105,8 +104,7 @@ public sealed class RazerDriverTests
 
         var result = provider.Probe(DateTimeOffset.UtcNow);
 
-        var snapshot = Assert.Single(result.Devices);
-        Assert.False(snapshot.IsSuccessful);
+        var snapshot = Assert.IsType<DevicePowerFailureSnapshot>(Assert.Single(result.Devices));
         Assert.Equal(PowerFailureKind.DeviceSleeping, snapshot.FailureKind);
         Assert.Equal("device sleeping", snapshot.ResultDetail);
     }
@@ -142,9 +140,8 @@ public sealed class RazerDriverTests
             [new ViperUltimateDriver()]);
 
         var result = provider.Probe(DateTimeOffset.UtcNow);
-        var snapshot = Assert.Single(result.Devices);
+        var snapshot = Assert.IsType<DevicePowerFailureSnapshot>(Assert.Single(result.Devices));
 
-        Assert.False(snapshot.IsSuccessful);
         Assert.Equal(expectedFailureKind, snapshot.FailureKind);
     }
 
@@ -177,8 +174,7 @@ public sealed class RazerDriverTests
 
         var result = provider.Probe(DateTimeOffset.UtcNow);
 
-        var snapshot = Assert.Single(result.Devices);
-        Assert.True(snapshot.IsSuccessful);
+        var snapshot = Assert.IsType<DevicePowerSuccess>(Assert.Single(result.Devices));
         Assert.Equal("naga-v2-hyperspeed", snapshot.DeviceKey);
         Assert.Equal(50, snapshot.BatteryPercent);
         Assert.Equal(false, snapshot.IsCharging);

@@ -30,18 +30,17 @@ public sealed class NagaV2HyperSpeedDriver : IHidDeviceDriver
 
     public DeviceProbeOutcome Probe(HidDeviceInfo device, IHidDeviceSession session, StringBuilder diagnostics)
     {
-        var batteryStatus = RazerProtocol.ReadPowerResponse(
+        var batteryResult = RazerProtocol.ReadPowerResponse(
             device,
             session,
             CandidateTransactionIds,
             diagnostics,
             RazerProtocol.GetBatteryCommandId,
-            "Battery",
-            out var batteryResponse);
+            "Battery");
 
-        if (batteryStatus != RazerReadStatus.Success)
+        if (batteryResult is not RazerPowerPayload(var batteryResponse))
         {
-            return DeviceProbeOutcome.Failure(RazerProtocol.MapReadFailure(batteryStatus, isWirelessDevice: true));
+            return new DeviceProbeFailure(RazerProtocol.MapFailureKind(batteryResult, isWirelessDevice: true));
         }
 
         var batteryPercent = RazerProtocol.ParseBatteryPercent(batteryResponse);
@@ -50,10 +49,10 @@ public sealed class NagaV2HyperSpeedDriver : IHidDeviceDriver
         if (batteryPercent == 0)
         {
             diagnostics.AppendLine("Discarding zero battery reading from wireless device while not charging.");
-            return DeviceProbeOutcome.Failure(PowerFailureKind.DeviceSleeping);
+            return new DeviceProbeFailure(PowerFailureKind.DeviceSleeping);
         }
 
         diagnostics.AppendLine("Charging status skipped (AA battery device; reporting on battery).");
-        return DeviceProbeOutcome.Success(batteryPercent, isCharging: false);
+        return new DeviceReading(batteryPercent, IsCharging: false);
     }
 }

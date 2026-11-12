@@ -48,34 +48,32 @@ public sealed class ViperUltimateDriver : IHidDeviceDriver
     public DeviceProbeOutcome Probe(HidDeviceInfo device, IHidDeviceSession session, StringBuilder diagnostics)
     {
         var isWireless = device.ProductId == WirelessProductId;
-        var batteryStatus = RazerProtocol.ReadPowerResponse(
+        var batteryResult = RazerProtocol.ReadPowerResponse(
             device,
             session,
             CandidateTransactionIds,
             diagnostics,
             RazerProtocol.GetBatteryCommandId,
-            "Battery",
-            out var batteryResponse);
+            "Battery");
 
-        if (batteryStatus != RazerReadStatus.Success)
+        if (batteryResult is not RazerPowerPayload(var batteryResponse))
         {
-            return DeviceProbeOutcome.Failure(RazerProtocol.MapReadFailure(batteryStatus, isWireless));
+            return new DeviceProbeFailure(RazerProtocol.MapFailureKind(batteryResult, isWireless));
         }
 
         var batteryPercent = RazerProtocol.ParseBatteryPercent(batteryResponse);
         diagnostics.AppendLine($"Battery byte {batteryResponse[9]} parsed as {batteryPercent}%.");
 
         bool? isCharging = null;
-        var chargingStatus = RazerProtocol.ReadPowerResponse(
+        var chargingResult = RazerProtocol.ReadPowerResponse(
             device,
             session,
             CandidateTransactionIds,
             diagnostics,
             RazerProtocol.GetChargingStatusCommandId,
-            "Charging",
-            out var chargingResponse);
+            "Charging");
 
-        if (chargingStatus == RazerReadStatus.Success)
+        if (chargingResult is RazerPowerPayload(var chargingResponse))
         {
             isCharging = RazerProtocol.ParseChargingStatus(chargingResponse);
             diagnostics.AppendLine($"Charging byte {chargingResponse[11]} parsed as {(isCharging.Value ? "charging" : "on battery")}.");
@@ -84,9 +82,9 @@ public sealed class ViperUltimateDriver : IHidDeviceDriver
         if (isWireless && batteryPercent == 0 && isCharging is not true)
         {
             diagnostics.AppendLine("Discarding zero battery reading from wireless device while not charging.");
-            return DeviceProbeOutcome.Failure(PowerFailureKind.DeviceSleeping);
+            return new DeviceProbeFailure(PowerFailureKind.DeviceSleeping);
         }
 
-        return DeviceProbeOutcome.Success(batteryPercent, isCharging);
+        return new DeviceReading(batteryPercent, isCharging);
     }
 }

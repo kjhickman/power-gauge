@@ -23,7 +23,7 @@ public sealed record BatteryProbeResult(
 
     public static BatteryProbeResult FromReport(
         PowerProbeReport report,
-        IReadOnlyDictionary<string, DevicePowerSnapshot> lastSuccessfulByDevice)
+        IReadOnlyDictionary<string, DevicePowerSuccess> lastSuccessfulByDevice)
     {
         if (report.Devices.Count == 0)
         {
@@ -50,7 +50,7 @@ public sealed record BatteryProbeResult(
         var resultHeader = BuildResultHeader(report, resolvedDevices);
         var toolTipText = BuildMultiDeviceTooltip(resolvedDevices);
         var diagnosticSource = resolvedDevices.FirstOrDefault(device => device.HasUnexpectedFailure)
-            ?? (iconBatteryPercent is null ? resolvedDevices.FirstOrDefault(device => !device.Snapshot.IsSuccessful) : null);
+            ?? (iconBatteryPercent is null ? resolvedDevices.FirstOrDefault(device => device.Snapshot is DevicePowerFailureSnapshot) : null);
         var showDiagnostics = diagnosticSource is not null;
         var diagnosticsHeader = diagnosticSource is null
             ? string.Empty
@@ -90,35 +90,52 @@ public sealed record BatteryProbeResult(
 
     private static ResolvedDeviceState ResolveDevice(
         DevicePowerSnapshot snapshot,
-        IReadOnlyDictionary<string, DevicePowerSnapshot> lastSuccessfulByDevice)
+        IReadOnlyDictionary<string, DevicePowerSuccess> lastSuccessfulByDevice)
     {
-        lastSuccessfulByDevice.TryGetValue(snapshot.DeviceKey, out var fallback);
-        var isUsingFallback = !snapshot.IsSuccessful && fallback is not null;
-        var displaySnapshot = snapshot.IsSuccessful ? snapshot : fallback ?? snapshot;
-        var effectiveBattery = displaySnapshot.BatteryPercent;
-        var effectiveIsCharging = snapshot.IsSuccessful ? snapshot.IsCharging : fallback?.IsCharging;
+        return snapshot switch
+        {
+            DevicePowerSuccess success => ResolveSuccessfulDevice(success),
+            DevicePowerFailureSnapshot failure => ResolveFailedDevice(failure, lastSuccessfulByDevice),
+        };
+    }
 
-        var statusLabel = snapshot.IsSuccessful
-            ? FormatActiveStatusLabel(snapshot.IsCharging)
-            : FormatFailureLabel(snapshot.FailureKind, fallback?.Timestamp);
+    private static ResolvedDeviceState ResolveSuccessfulDevice(DevicePowerSuccess success)
+    {
+        var activeStatus = FormatActiveStatusLabel(success.IsCharging);
+        return new ResolvedDeviceState(
+            success,
+            success.DeviceDisplayName,
+            success.BatteryPercent,
+            success.IsCharging,
+            success.Timestamp,
+            $"Battery: {success.BatteryPercent}% · {activeStatus}",
+            activeStatus,
+            HasUnexpectedFailure: false);
+    }
 
-        var tooltipStatusLabel = snapshot.IsSuccessful
-            ? FormatActiveStatusLabel(snapshot.IsCharging)
-            : FormatShortFailureLabel(snapshot.FailureKind);
+    private static ResolvedDeviceState ResolveFailedDevice(
+        DevicePowerFailureSnapshot failure,
+        IReadOnlyDictionary<string, DevicePowerSuccess> lastSuccessfulByDevice)
+    {
+        var hasFallback = lastSuccessfulByDevice.TryGetValue(failure.DeviceKey, out var fallback);
+        var displayName = fallback?.DeviceDisplayName ?? failure.DeviceDisplayName;
+        int? effectiveBattery = fallback?.BatteryPercent;
+        var effectiveIsCharging = fallback?.IsCharging;
+        var statusLabel = FormatFailureLabel(failure.FailureKind, fallback?.Timestamp);
+        var tooltipStatusLabel = FormatShortFailureLabel(failure.FailureKind);
 
         var menuBatteryStatusLine = effectiveBattery is int percent
             ? $"Battery: {percent}% · {statusLabel}"
             : $"Battery: unavailable · {statusLabel}";
 
-        var hasUnexpectedFailure = !snapshot.IsSuccessful
-            && !(snapshot.FailureKind == PowerFailureKind.DeviceSleeping && isUsingFallback);
+        var hasUnexpectedFailure = !(failure.FailureKind == PowerFailureKind.DeviceSleeping && hasFallback);
 
         return new ResolvedDeviceState(
-            snapshot,
-            displaySnapshot.DeviceDisplayName,
+            failure,
+            displayName,
             effectiveBattery,
             effectiveIsCharging,
-            isUsingFallback ? fallback!.Timestamp : snapshot.Timestamp,
+            fallback?.Timestamp ?? failure.Timestamp,
             menuBatteryStatusLine,
             tooltipStatusLabel,
             hasUnexpectedFailure);
@@ -126,7 +143,7 @@ public sealed record BatteryProbeResult(
 
     private static string BuildResultHeader(PowerProbeReport report, IReadOnlyList<ResolvedDeviceState> devices)
     {
-        if (devices.Any(device => device.Snapshot.IsSuccessful))
+        if (devices.Any(device => device.Snapshot is DevicePowerSuccess))
         {
             return $"Last updated: {report.Timestamp:HH:mm:ss}";
         }

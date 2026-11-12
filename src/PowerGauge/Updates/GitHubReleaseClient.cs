@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 
 namespace PowerGauge.Updates;
 
-internal sealed class GitHubReleaseClient
+internal sealed class GitHubReleaseClient : IReleaseFeedClient
 {
     private const string Sha256Prefix = "sha256:";
     private static readonly Uri LatestReleaseUri = new($"https://api.github.com/repos/{AppIdentity.GitHubRepository}/releases/latest");

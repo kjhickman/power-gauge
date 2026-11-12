@@ -13,17 +13,32 @@ public enum DeviceKind
     Other,
 }
 
-public sealed record DevicePowerSnapshot(
+public closed record DevicePowerSnapshot(
     string DeviceKey,
     DeviceKind DeviceKind,
     DateTimeOffset Timestamp,
     string DeviceDisplayName,
-    int? BatteryPercent,
+    string Diagnostics);
+
+public sealed record DevicePowerSuccess(
+    string DeviceKey,
+    DeviceKind DeviceKind,
+    DateTimeOffset Timestamp,
+    string DeviceDisplayName,
+    int BatteryPercent,
     bool? IsCharging,
-    bool IsSuccessful,
+    string Diagnostics)
+    : DevicePowerSnapshot(DeviceKey, DeviceKind, Timestamp, DeviceDisplayName, Diagnostics);
+
+public sealed record DevicePowerFailureSnapshot(
+    string DeviceKey,
+    DeviceKind DeviceKind,
+    DateTimeOffset Timestamp,
+    string DeviceDisplayName,
     PowerFailureKind FailureKind,
     string ResultDetail,
-    string Diagnostics);
+    string Diagnostics)
+    : DevicePowerSnapshot(DeviceKey, DeviceKind, Timestamp, DeviceDisplayName, Diagnostics);
 
 public sealed record PowerProbeReport(
     DateTimeOffset Timestamp,
@@ -33,7 +48,7 @@ public sealed record PowerProbeReport(
     string Diagnostics,
     string? LogFilePath = null)
 {
-    public bool HasAnySuccessfulDevice => Devices.Any(device => device.IsSuccessful);
+    public bool HasAnySuccessfulDevice => Devices.Any(device => device is DevicePowerSuccess);
 }
 
 public enum PowerFailureKind

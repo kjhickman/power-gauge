@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 using PowerGauge.Application;
@@ -85,16 +84,18 @@ public sealed class MultiVendorArchitectureTests
             report.Devices,
             mouse =>
             {
-                Assert.Equal("naga-v2-hyperspeed", mouse.DeviceKey);
-                Assert.Equal(DeviceKind.Mouse, mouse.DeviceKind);
-                Assert.Equal(80, mouse.BatteryPercent);
+                var success = Assert.IsType<DevicePowerSuccess>(mouse);
+                Assert.Equal("naga-v2-hyperspeed", success.DeviceKey);
+                Assert.Equal(DeviceKind.Mouse, success.DeviceKind);
+                Assert.Equal(80, success.BatteryPercent);
             },
             headset =>
             {
-                Assert.Equal("test-vendor:headset", headset.DeviceKey);
-                Assert.Equal(DeviceKind.Headset, headset.DeviceKind);
-                Assert.Equal(35, headset.BatteryPercent);
-                Assert.Equal(true, headset.IsCharging);
+                var success = Assert.IsType<DevicePowerSuccess>(headset);
+                Assert.Equal("test-vendor:headset", success.DeviceKey);
+                Assert.Equal(DeviceKind.Headset, success.DeviceKind);
+                Assert.Equal(35, success.BatteryPercent);
+                Assert.Equal(true, success.IsCharging);
             });
     }
 
@@ -103,16 +104,13 @@ public sealed class MultiVendorArchitectureTests
     {
         var hidProvider = new StubProvider(ts => new ProviderProbeResult(
             [
-                new DevicePowerSnapshot(
+                new DevicePowerSuccess(
                     "razer:mouse",
                     DeviceKind.Mouse,
                     ts,
                     "Razer Viper Ultimate (Wireless)",
                     72,
                     false,
-                    true,
-                    PowerFailureKind.None,
-                    "success",
                     "ok")
             ],
             PowerFailureKind.None,
@@ -121,16 +119,13 @@ public sealed class MultiVendorArchitectureTests
 
         var bleKeyboardProvider = new StubProvider(ts => new ProviderProbeResult(
             [
-                new DevicePowerSnapshot(
+                new DevicePowerSuccess(
                     "ble:keychron-k2",
                     DeviceKind.Keyboard,
                     ts,
                     "Keychron K2 Pro (Bluetooth)",
                     28,
                     false,
-                    true,
-                    PowerFailureKind.None,
-                    "success",
                     "ok")
             ],
             PowerFailureKind.None,
@@ -155,35 +150,30 @@ public sealed class MultiVendorArchitectureTests
         var isSleeping = false;
         var provider = new StubProvider(ts =>
         {
-            var snapshot = isSleeping
-                ? new DevicePowerSnapshot(
+            if (isSleeping)
+            {
+                var failure = new DevicePowerFailureSnapshot(
                     "steelseries:arctis",
                     DeviceKind.Headset,
                     ts,
                     "SteelSeries Arctis Nova 7",
-                    null,
-                    null,
-                    false,
                     PowerFailureKind.DeviceSleeping,
                     "device sleeping",
-                    "Headset powered off / sleeping.")
-                : new DevicePowerSnapshot(
-                    "steelseries:arctis",
-                    DeviceKind.Headset,
-                    ts,
-                    "SteelSeries Arctis Nova 7",
-                    64,
-                    false,
-                    true,
-                    PowerFailureKind.None,
-                    "success",
-                    "Headset awake.");
+                    "Headset powered off / sleeping.");
 
-            return new ProviderProbeResult(
-                [snapshot],
-                snapshot.FailureKind,
-                snapshot.ResultDetail,
-                snapshot.Diagnostics);
+                return new ProviderProbeResult([failure], failure.FailureKind, failure.ResultDetail, failure.Diagnostics);
+            }
+
+            var success = new DevicePowerSuccess(
+                "steelseries:arctis",
+                DeviceKind.Headset,
+                ts,
+                "SteelSeries Arctis Nova 7",
+                64,
+                false,
+                "Headset awake.");
+
+            return new ProviderProbeResult([success], PowerFailureKind.None, "success", success.Diagnostics);
         });
 
         var controller = new PowerPollingController(new CompositeDevicePowerReader([provider], ProbeLogWriter.Disabled));
@@ -207,10 +197,8 @@ public sealed class MultiVendorArchitectureTests
         var interface2 = new HidDeviceInfo("dev-col02", RazerProtocol.VendorId, 0x00b4, 90, "Naga");
 
         var transport = new FakeHidTransport();
-        // Interface 1 fails with generic unsupported response
         transport.RegisterSession(interface1.DevicePath, new FakeHidDeviceSession(
             (_, _) => (false, [], PowerFailureKind.UnsupportedResponse, "unsupported collection")));
-        // Interface 2 reports placeholder sleeping response
         transport.RegisterSession(interface2.DevicePath, new FakeHidDeviceSession(
             (_, _) => (false, [], PowerFailureKind.DeviceSleeping, "Only placeholder response received.")));
 
@@ -220,7 +208,7 @@ public sealed class MultiVendorArchitectureTests
             [new NagaV2HyperSpeedDriver()]);
 
         var result = provider.Probe(DateTimeOffset.UtcNow);
-        var snapshot = Assert.Single(result.Devices);
+        var snapshot = Assert.IsType<DevicePowerFailureSnapshot>(Assert.Single(result.Devices));
 
         Assert.Equal(PowerFailureKind.DeviceSleeping, snapshot.FailureKind);
         Assert.Equal("device sleeping", snapshot.ResultDetail);
@@ -258,10 +246,10 @@ public sealed class MultiVendorArchitectureTests
             if (!session.TryExchangeFeatureReport([0x06, 0x18], response, null, out var failureKind, out var error))
             {
                 diagnostics.AppendLine(error);
-                return DeviceProbeOutcome.Failure(failureKind);
+                return new DeviceProbeFailure(failureKind);
             }
 
-            return DeviceProbeOutcome.Success(batteryPercent: response[2], isCharging: response[3] == 0x01);
+            return new DeviceReading(BatteryPercent: response[2], IsCharging: response[3] == 0x01);
         }
     }
 
