@@ -23,7 +23,7 @@ public sealed record BatteryProbeResult(
 
     public static BatteryProbeResult FromReport(
         PowerProbeReport report,
-        IReadOnlyDictionary<string, MousePowerSnapshot> lastSuccessfulByDevice)
+        IReadOnlyDictionary<string, DevicePowerSnapshot> lastSuccessfulByDevice)
     {
         if (report.Devices.Count == 0)
         {
@@ -72,7 +72,7 @@ public sealed record BatteryProbeResult(
         {
             PowerFailureKind.EnumerationFailed => "HID enumeration failed",
             _ when string.Equals(report.ResultDetail, "platform unsupported", StringComparison.Ordinal) => "Unsupported platform",
-            _ => "No supported Razer mouse detected",
+            _ => "No supported wireless device detected",
         };
         var statusLabel = FormatFailureLabel(report.FailureKind, fallbackTimestamp: null);
         var diagnosticsHeader = TruncateHeader($"Diagnostics: {LastDiagnosticLine(report.Diagnostics)}");
@@ -89,8 +89,8 @@ public sealed record BatteryProbeResult(
     }
 
     private static ResolvedDeviceState ResolveDevice(
-        MousePowerSnapshot snapshot,
-        IReadOnlyDictionary<string, MousePowerSnapshot> lastSuccessfulByDevice)
+        DevicePowerSnapshot snapshot,
+        IReadOnlyDictionary<string, DevicePowerSnapshot> lastSuccessfulByDevice)
     {
         lastSuccessfulByDevice.TryGetValue(snapshot.DeviceKey, out var fallback);
         var isUsingFallback = !snapshot.IsSuccessful && fallback is not null;
@@ -224,7 +224,7 @@ public sealed record BatteryProbeResult(
     }
 
     private sealed record ResolvedDeviceState(
-        MousePowerSnapshot Snapshot,
+        DevicePowerSnapshot Snapshot,
         string DisplayName,
         int? EffectiveBatteryPercent,
         bool? EffectiveIsCharging,

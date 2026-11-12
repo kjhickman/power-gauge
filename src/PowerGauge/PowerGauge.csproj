@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>PowerGauge</AssemblyName>
     <AssemblyTitle>PowerGauge</AssemblyTitle>
-    <Description>Tray battery monitor for supported Razer wireless mice.</Description>
+    <Description>Tray battery monitor for supported wireless devices.</Description>
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <ApplicationManifest Condition="'$(OS)' == 'Windows_NT' or $([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win'))">app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+    <InternalsVisibleTo Include="PowerGauge.Tests" />
   </ItemGroup>
 
   <ItemGroup>

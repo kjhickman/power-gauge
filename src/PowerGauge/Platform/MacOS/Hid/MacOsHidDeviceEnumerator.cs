@@ -35,7 +35,11 @@ public sealed class MacOsHidDeviceEnumerator : IHidDeviceEnumerator
                     MacOsHidInterop.GetIntProperty(device, "VendorID"),
                     MacOsHidInterop.GetIntProperty(device, "ProductID"),
                     MacOsHidInterop.GetIntProperty(device, "MaxFeatureReportSize"),
-                    GetProductName(device)));
+                    GetProductName(device),
+                    MacOsHidInterop.GetIntProperty(device, "PrimaryUsagePage"),
+                    MacOsHidInterop.GetIntProperty(device, "PrimaryUsage"),
+                    MacOsHidInterop.GetIntProperty(device, "MaxInputReportSize"),
+                    MacOsHidInterop.GetIntProperty(device, "MaxOutputReportSize")));
             }
 
             return hidDevices;

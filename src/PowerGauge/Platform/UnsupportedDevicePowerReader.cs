@@ -4,7 +4,7 @@ using PowerGauge.Domain;
 
 namespace PowerGauge.Platform;
 
-public sealed class UnsupportedMousePowerReader : IMousePowerReader
+public sealed class UnsupportedDevicePowerReader : IDevicePowerReader
 {
     public PowerProbeReport Probe()
     {

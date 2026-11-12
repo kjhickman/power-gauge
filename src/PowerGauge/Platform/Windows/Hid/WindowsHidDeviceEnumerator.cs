@@ -124,6 +124,10 @@ public sealed class WindowsHidDeviceEnumerator : IHidDeviceEnumerator
             return fallback;
         }
 
+        var usagePage = 0;
+        var usage = 0;
+        var inputReportLength = 0;
+        var outputReportLength = 0;
         var featureReportLength = 0;
         if (HidD_GetPreparsedData(handle, out var preparsedData))
         {
@@ -132,6 +136,10 @@ public sealed class WindowsHidDeviceEnumerator : IHidDeviceEnumerator
                 var caps = new HidpCaps();
                 if (HidP_GetCaps(preparsedData, out caps) == HidpStatusSuccess)
                 {
+                    usagePage = caps.UsagePage;
+                    usage = caps.Usage;
+                    inputReportLength = caps.InputReportByteLength;
+                    outputReportLength = caps.OutputReportByteLength;
                     featureReportLength = caps.FeatureReportByteLength;
                 }
             }
@@ -147,7 +155,11 @@ public sealed class WindowsHidDeviceEnumerator : IHidDeviceEnumerator
             attributes.VendorID,
             attributes.ProductID,
             featureReportLength,
-            string.IsNullOrWhiteSpace(productName) ? fallback.ProductName : productName);
+            string.IsNullOrWhiteSpace(productName) ? fallback.ProductName : productName,
+            usagePage,
+            usage,
+            inputReportLength,
+            outputReportLength);
     }
 
     private static HidDeviceInfo CreateFallbackDeviceInfo(string devicePath)

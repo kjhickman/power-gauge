@@ -2,12 +2,23 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using PowerGauge.Domain;
 using PowerGauge.Platform.Abstractions;
 
-namespace PowerGauge.Razer.Protocol;
+namespace PowerGauge.Devices.Razer;
+
+internal enum RazerReadStatus
+{
+    Success,
+    CommandTimeout,
+    DeviceSleeping,
+    TransportTimeout,
+    Unsupported,
+}
 
 internal static class RazerProtocol
 {
+    public const int VendorId = 0x1532;
     public const int ReportLength = 90;
     public const byte PowerCommandClass = 0x07;
     public const byte GetBatteryCommandId = 0x80;
@@ -37,9 +48,39 @@ internal static class RazerProtocol
             && response[0] == 0x04;
     }
 
-    public static bool TryReadPowerResponse(
+    public static HidFeatureResponseStatus ClassifyFeatureResponse(ReadOnlySpan<byte> request, ReadOnlySpan<byte> response)
+    {
+        var offset = request.Length == ReportLength + 1 ? 1 : 0;
+        if (request.Length != response.Length || response.Length < offset + 10)
+        {
+            return HidFeatureResponseStatus.Accepted;
+        }
+
+        if (response[offset + 6] != request[offset + 6]
+            || response[offset + 7] != request[offset + 7])
+        {
+            return HidFeatureResponseStatus.UnrelatedCommand;
+        }
+
+        var status = response[offset];
+        if (status == 0x01)
+        {
+            return HidFeatureResponseStatus.Pending;
+        }
+
+        if (status == 0x00
+            && response[offset + 8] == 0x00
+            && response[offset + 9] == 0x00)
+        {
+            return HidFeatureResponseStatus.Pending;
+        }
+
+        return HidFeatureResponseStatus.Accepted;
+    }
+
+    public static RazerReadStatus ReadPowerResponse(
         HidDeviceInfo device,
-        IHidFeatureTransport featureTransport,
+        IHidDeviceSession session,
         ReadOnlySpan<byte> candidateTransactionIds,
         StringBuilder diagnostics,
         byte commandId,
@@ -53,13 +94,15 @@ internal static class RazerProtocol
         if (reportLength < ReportLength)
         {
             diagnostics.AppendLine("Skipped: feature report length is shorter than 90 bytes.");
-            return false;
+            return RazerReadStatus.Unsupported;
         }
 
-        diagnostics.AppendLine("Using native HID feature transport.");
+        diagnostics.AppendLine("Using native HID feature session.");
         var payloadOffset = reportLength == ReportLength + 1 ? 1 : 0;
         var payloadLength = reportLength - payloadOffset;
         byte[]? timeoutPayload = null;
+        var sawSleepingPlaceholder = false;
+        var sawTransportTimeout = false;
 
         foreach (var transactionId in candidateTransactionIds)
         {
@@ -68,9 +111,18 @@ internal static class RazerProtocol
             Array.Copy(requestPayload, 0, request, payloadOffset, requestPayload.Length);
 
             var response = new byte[reportLength];
-            if (!featureTransport.TryExchangeFeatureReport(device.DevicePath, request, response, out var error))
+            if (!session.TryExchangeFeatureReport(request, response, ClassifyFeatureResponse, out var exchangeFailure, out var error))
             {
                 diagnostics.AppendLine($"Transaction 0x{transactionId:x2} failed: {error}");
+                if (exchangeFailure == PowerFailureKind.DeviceSleeping)
+                {
+                    sawSleepingPlaceholder = true;
+                }
+                else if (exchangeFailure == PowerFailureKind.ProtocolTimeout)
+                {
+                    sawTransportTimeout = true;
+                }
+
                 continue;
             }
 
@@ -80,7 +132,7 @@ internal static class RazerProtocol
             if (IsSuccessResponse(payload, transactionId, PowerCommandClass, commandId))
             {
                 responsePayload = payload;
-                return true;
+                return RazerReadStatus.Success;
             }
 
             if (IsTimeoutResponse(payload, transactionId, PowerCommandClass, commandId))
@@ -92,10 +144,31 @@ internal static class RazerProtocol
         if (timeoutPayload is not null)
         {
             responsePayload = timeoutPayload;
-            return true;
+            return RazerReadStatus.CommandTimeout;
         }
 
-        return false;
+        if (sawSleepingPlaceholder)
+        {
+            return RazerReadStatus.DeviceSleeping;
+        }
+
+        if (sawTransportTimeout)
+        {
+            return RazerReadStatus.TransportTimeout;
+        }
+
+        return RazerReadStatus.Unsupported;
+    }
+
+    public static PowerFailureKind MapReadFailure(RazerReadStatus status, bool isWirelessDevice)
+    {
+        return status switch
+        {
+            RazerReadStatus.DeviceSleeping => PowerFailureKind.DeviceSleeping,
+            RazerReadStatus.CommandTimeout => isWirelessDevice ? PowerFailureKind.DeviceSleeping : PowerFailureKind.ProtocolTimeout,
+            RazerReadStatus.TransportTimeout => PowerFailureKind.ProtocolTimeout,
+            _ => PowerFailureKind.UnsupportedResponse,
+        };
     }
 
     public static int ParseBatteryPercent(IReadOnlyList<byte> response)

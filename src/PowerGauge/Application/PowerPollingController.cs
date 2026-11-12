@@ -9,10 +9,10 @@ namespace PowerGauge.Application;
 
 public sealed class PowerPollingController
 {
-    private readonly IMousePowerReader _powerReader;
-    private readonly Dictionary<string, MousePowerSnapshot> _lastSuccessfulByDevice = new(StringComparer.Ordinal);
+    private readonly IDevicePowerReader _powerReader;
+    private readonly Dictionary<string, DevicePowerSnapshot> _lastSuccessfulByDevice = new(StringComparer.Ordinal);
 
-    public PowerPollingController(IMousePowerReader powerReader)
+    public PowerPollingController(IDevicePowerReader powerReader)
     {
         _powerReader = powerReader;
     }
@@ -20,7 +20,7 @@ public sealed class PowerPollingController
     public BatteryProbeResult CreateInitialResult()
     {
         return new BatteryProbeResult(
-            [new DeviceBatteryDisplay("Scanning Razer HID devices...", "Battery: probing...")],
+            [new DeviceBatteryDisplay("Scanning wireless devices...", "Battery: probing...")],
             $"Last updated: {DateTimeOffset.Now:HH:mm:ss}",
             string.Empty,
             false,

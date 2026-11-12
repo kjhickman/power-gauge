@@ -5,9 +5,12 @@ using Avalonia.Threading;
 using System;
 using System.Threading.Tasks;
 using PowerGauge.Application;
+using PowerGauge.Devices.Hid;
+using PowerGauge.Diagnostics;
 using PowerGauge.Platform;
-using PowerGauge.Platform.MacOS;
-using PowerGauge.Platform.Windows;
+using PowerGauge.Platform.Abstractions;
+using PowerGauge.Platform.MacOS.Hid;
+using PowerGauge.Platform.Windows.Hid;
 using PowerGauge.Tray;
 using PowerGauge.Updates;
 
@@ -103,18 +106,28 @@ public partial class App : Avalonia.Application
         }
     }
 
-    private static IMousePowerReader CreatePowerReader()
+    private static IDevicePowerReader CreatePowerReader()
     {
         if (OperatingSystem.IsWindows())
         {
-            return new WindowsRazerMouseReader();
+            return CreateHidPowerReader(new WindowsHidDeviceEnumerator(), new WindowsHidTransport());
         }
 
         if (OperatingSystem.IsMacOS())
         {
-            return new MacOsRazerMouseReader();
+            return CreateHidPowerReader(new MacOsHidDeviceEnumerator(), new MacOsHidTransport());
         }
 
-        return new UnsupportedMousePowerReader();
+        return new UnsupportedDevicePowerReader();
+    }
+
+    private static IDevicePowerReader CreateHidPowerReader(IHidDeviceEnumerator deviceEnumerator, IHidTransport transport)
+    {
+        var hidProvider = new HidDevicePowerProvider(
+            deviceEnumerator,
+            transport,
+            HidDevicePowerProvider.CreateDefaultDrivers());
+
+        return new CompositeDevicePowerReader([hidProvider], new ProbeLogWriter());
     }
 }

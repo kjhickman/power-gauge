@@ -29,6 +29,6 @@
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSInputMonitoringUsageDescription</key>
-  <string>PowerGauge needs Input Monitoring permission to read battery data from supported Razer mouse HID devices.</string>
+  <string>PowerGauge needs Input Monitoring permission to read battery data from supported wireless HID devices.</string>
 </dict>
 </plist>

@@ -5,4 +5,8 @@ public sealed record HidDeviceInfo(
     int VendorId,
     int ProductId,
     int FeatureReportLength,
-    string ProductName);
+    string ProductName,
+    int UsagePage = 0,
+    int Usage = 0,
+    int InputReportLength = 0,
+    int OutputReportLength = 0);

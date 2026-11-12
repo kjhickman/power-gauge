@@ -7,4 +7,7 @@
   <Folder Name="/src/">
     <Project Path="src/PowerGauge/PowerGauge.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PowerGauge.Tests/PowerGauge.Tests.csproj" />
+  </Folder>
 </Solution>
