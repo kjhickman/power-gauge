@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using DictionaryEntry;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -17,25 +18,21 @@ public sealed class TrayIconRenderer
 
     public WindowIcon Render(int? batteryPercent)
     {
-        if (batteryPercent is not int percent)
-        {
-            return _placeholderIcon ??= CreateIcon("?", Color.Parse("#6b7280"), Brushes.White);
-        }
+        return batteryPercent is int percent
+            ? _batteryIcons.Entry(percent).OrInsertWithKey(CreateBatteryIcon)
+            : _placeholderIcon ??= CreateIcon("?", Color.Parse("#6b7280"), Brushes.White);
+    }
 
-        if (_batteryIcons.TryGetValue(percent, out var icon))
-        {
-            return icon;
-        }
-
-        var background = GetBackgroundColor(percent);
+    private static WindowIcon CreateBatteryIcon(int percent)
+    {
         var foreground = percent is > 40 and <= 100
             ? Brushes.White
             : Brushes.Black;
-        var label = percent.ToString(CultureInfo.InvariantCulture);
 
-        icon = CreateIcon(label, background, foreground);
-        _batteryIcons[percent] = icon;
-        return icon;
+        return CreateIcon(
+            percent.ToString(CultureInfo.InvariantCulture),
+            GetBackgroundColor(percent),
+            foreground);
     }
 
     private static WindowIcon CreateIcon(string label, Color background, IBrush foreground)
