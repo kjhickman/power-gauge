@@ -2,9 +2,7 @@
   <PropertyGroup>
     <TargetFramework Condition="'$(TargetFramework)' == ''">net11.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <Version Condition="'$(Version)' == ''">0.2.1</Version>
-    <FileVersion Condition="'$(FileVersion)' == ''">$(Version)</FileVersion>
-    <InformationalVersion Condition="'$(InformationalVersion)' == ''">$(Version)</InformationalVersion>
+    <Version Condition="'$(Version)' == ''">0.0.0-dev</Version>
     <Product>PowerGauge</Product>
     <BaseOutputPath>$(MSBuildThisFileDirectory)artifacts/bin/$(MSBuildProjectName)/</BaseOutputPath>
     <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)artifacts/obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>

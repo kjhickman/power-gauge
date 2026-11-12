@@ -2,7 +2,7 @@
 #define MyAppName "PowerGauge"
 #define MyAppExeName "PowerGauge.exe"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.1"
+  #define MyAppVersion "0.0.0"
 #endif
 #ifndef MyPublishDir
   #define MyPublishDir "..\artifacts\publish\windows-nativeaot"

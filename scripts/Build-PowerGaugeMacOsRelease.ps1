@@ -1,9 +1,22 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$Version = "0.2.1"
+    [string]$Version = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    $latestTag = git describe --tags --abbrev=0 2>$null
+    $Version = if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($latestTag)) {
+        $latestTag.Trim().TrimStart('v', 'V')
+    }
+    else {
+        "0.0.0-dev"
+    }
+}
+else {
+    $Version = $Version.Trim().TrimStart('v', 'V')
+}
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $appName = "PowerGauge"
