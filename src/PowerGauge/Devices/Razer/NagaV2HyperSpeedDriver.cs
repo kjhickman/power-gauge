@@ -38,13 +38,13 @@ public sealed class NagaV2HyperSpeedDriver : IHidDeviceDriver
             RazerProtocol.GetBatteryCommandId,
             "Battery");
 
-        if (batteryResult is not RazerPowerPayload(var batteryResponse))
+        if (batteryResult is not RazerPowerPayload batteryPayload)
         {
             return new DeviceProbeFailure(RazerProtocol.MapFailureKind(batteryResult, isWirelessDevice: true));
         }
 
-        var batteryPercent = RazerProtocol.ParseBatteryPercent(batteryResponse);
-        diagnostics.AppendLine($"Battery byte {batteryResponse[9]} parsed as {batteryPercent}%.");
+        var batteryPercent = RazerProtocol.ParseBatteryPercent(batteryPayload.PrimaryArg);
+        diagnostics.Append("Battery byte ").Append(batteryPayload.PrimaryArg).Append(" parsed as ").Append(batteryPercent).AppendLine("%.");
 
         if (batteryPercent == 0)
         {

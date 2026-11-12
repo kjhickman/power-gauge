@@ -267,7 +267,7 @@ public sealed class MultiVendorArchitectureTests
 
         public DeviceProbeOutcome Probe(HidDeviceInfo device, IHidDeviceSession session, StringBuilder diagnostics)
         {
-            var response = new byte[8];
+            Span<byte> response = stackalloc byte[8];
             if (!session.TryExchangeFeatureReport([0x06, 0x18], response, null, out var failureKind, out var error))
             {
                 diagnostics.AppendLine(error);

@@ -56,13 +56,13 @@ public sealed class ViperUltimateDriver : IHidDeviceDriver
             RazerProtocol.GetBatteryCommandId,
             "Battery");
 
-        if (batteryResult is not RazerPowerPayload(var batteryResponse))
+        if (batteryResult is not RazerPowerPayload batteryPayload)
         {
             return new DeviceProbeFailure(RazerProtocol.MapFailureKind(batteryResult, isWireless));
         }
 
-        var batteryPercent = RazerProtocol.ParseBatteryPercent(batteryResponse);
-        diagnostics.AppendLine($"Battery byte {batteryResponse[9]} parsed as {batteryPercent}%.");
+        var batteryPercent = RazerProtocol.ParseBatteryPercent(batteryPayload.PrimaryArg);
+        diagnostics.Append("Battery byte ").Append(batteryPayload.PrimaryArg).Append(" parsed as ").Append(batteryPercent).AppendLine("%.");
 
         bool? isCharging = null;
         var chargingResult = RazerProtocol.ReadPowerResponse(
@@ -73,10 +73,10 @@ public sealed class ViperUltimateDriver : IHidDeviceDriver
             RazerProtocol.GetChargingStatusCommandId,
             "Charging");
 
-        if (chargingResult is RazerPowerPayload(var chargingResponse))
+        if (chargingResult is RazerPowerPayload chargingPayload)
         {
-            isCharging = RazerProtocol.ParseChargingStatus(chargingResponse);
-            diagnostics.AppendLine($"Charging byte {chargingResponse[11]} parsed as {(isCharging.Value ? "charging" : "on battery")}.");
+            isCharging = RazerProtocol.ParseChargingStatus(chargingPayload);
+            diagnostics.Append("Charging byte ").Append(chargingPayload.TertiaryArg).Append(" parsed as ").AppendLine(isCharging.Value ? "charging." : "on battery.");
         }
 
         if (isWireless && batteryPercent == 0 && isCharging is not true)

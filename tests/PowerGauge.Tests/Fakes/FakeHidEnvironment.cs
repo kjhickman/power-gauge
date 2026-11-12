@@ -56,7 +56,7 @@ internal sealed class FakeHidTransport : IHidTransport
 internal sealed class FakeHidDeviceSession : IHidDeviceSession
 {
     public delegate (bool Success, byte[] Response, PowerFailureKind FailureKind, string Error) ExchangeHandler(
-        byte[] request,
+        ReadOnlySpan<byte> request,
         HidFeatureResponseClassifier? classifier);
 
     private readonly ExchangeHandler _exchangeHandler;
@@ -71,8 +71,8 @@ internal sealed class FakeHidDeviceSession : IHidDeviceSession
     public int ExchangeCallCount { get; private set; }
 
     public bool TryExchangeFeatureReport(
-        byte[] request,
-        byte[] response,
+        ReadOnlySpan<byte> request,
+        Span<byte> response,
         HidFeatureResponseClassifier? responseClassifier,
         out PowerFailureKind failureKind,
         out string error)
@@ -87,8 +87,8 @@ internal sealed class FakeHidDeviceSession : IHidDeviceSession
             return false;
         }
 
-        Array.Clear(response);
-        Array.Copy(result.Response, 0, response, 0, Math.Min(result.Response.Length, response.Length));
+        response.Clear();
+        result.Response.AsSpan(0, Math.Min(result.Response.Length, response.Length)).CopyTo(response);
 
         if (responseClassifier is not null && responseClassifier(request, response) != HidFeatureResponseStatus.Accepted)
         {

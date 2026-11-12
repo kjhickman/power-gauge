@@ -8,7 +8,7 @@ using PowerGauge.Platform.Abstractions;
 
 namespace PowerGauge.Platform.Windows.Hid;
 
-public sealed class WindowsHidTransport : IHidTransport
+public sealed partial class WindowsHidTransport : IHidTransport
 {
     private const uint FileShareRead = 0x00000001;
     private const uint FileShareWrite = 0x00000002;
@@ -24,10 +24,9 @@ public sealed class WindowsHidTransport : IHidTransport
         }
 
         var handle = OpenDevice(device.DevicePath);
-
         if (handle.IsInvalid)
         {
-            var win32Error = Marshal.GetLastWin32Error();
+            var win32Error = Marshal.GetLastPInvokeError();
             handle.Dispose();
             return new HidOpenFailure(
                 PowerFailureKind.DeviceUnavailable,
@@ -66,9 +65,9 @@ public sealed class WindowsHidTransport : IHidTransport
                 return false;
             }
 
-            if (!HidD_SetFeature(_handle, ref MemoryMarshal.GetReference(request), request.Length))
+            if (!HidD_SetFeature(_handle, request, request.Length))
             {
-                error = $"HidD_SetFeature failed: {new Win32Exception(Marshal.GetLastWin32Error()).Message}";
+                error = $"HidD_SetFeature failed: {new Win32Exception(Marshal.GetLastPInvokeError()).Message}";
                 return false;
             }
 
@@ -84,9 +83,9 @@ public sealed class WindowsHidTransport : IHidTransport
                 return false;
             }
 
-            if (!HidD_GetFeature(_handle, ref MemoryMarshal.GetReference(response), response.Length))
+            if (!HidD_GetFeature(_handle, response, response.Length))
             {
-                error = $"HidD_GetFeature failed: {new Win32Exception(Marshal.GetLastWin32Error()).Message}";
+                error = $"HidD_GetFeature failed: {new Win32Exception(Marshal.GetLastPInvokeError()).Message}";
                 return false;
             }
 
@@ -95,8 +94,8 @@ public sealed class WindowsHidTransport : IHidTransport
         }
 
         public bool TryExchangeFeatureReport(
-            byte[] request,
-            byte[] response,
+            ReadOnlySpan<byte> request,
+            Span<byte> response,
             HidFeatureResponseClassifier? responseClassifier,
             out PowerFailureKind failureKind,
             out string error)
@@ -123,8 +122,8 @@ public sealed class WindowsHidTransport : IHidTransport
                 {
                     Thread.Sleep(delayMs);
 
-                    Array.Clear(response);
-                    if (request.Length > 0 && response.Length > 0)
+                    response.Clear();
+                    if (!request.IsEmpty && !response.IsEmpty)
                     {
                         response[0] = request[0];
                     }
@@ -188,8 +187,8 @@ public sealed class WindowsHidTransport : IHidTransport
         }
     }
 
-    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern SafeFileHandle CreateFile(
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    private static partial SafeFileHandle CreateFile(
         string fileName,
         uint desiredAccess,
         uint shareMode,
@@ -198,11 +197,11 @@ public sealed class WindowsHidTransport : IHidTransport
         uint flagsAndAttributes,
         IntPtr templateFile);
 
-    [DllImport("hid.dll", SetLastError = true)]
+    [LibraryImport("hid.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool HidD_SetFeature(SafeFileHandle hidDeviceObject, ref byte reportBuffer, int reportBufferLength);
+    private static partial bool HidD_SetFeature(SafeFileHandle hidDeviceObject, ReadOnlySpan<byte> reportBuffer, int reportBufferLength);
 
-    [DllImport("hid.dll", SetLastError = true)]
+    [LibraryImport("hid.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool HidD_GetFeature(SafeFileHandle hidDeviceObject, ref byte reportBuffer, int reportBufferLength);
+    private static partial bool HidD_GetFeature(SafeFileHandle hidDeviceObject, Span<byte> reportBuffer, int reportBufferLength);
 }

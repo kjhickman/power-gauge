@@ -5,7 +5,7 @@ using System.Text;
 
 namespace PowerGauge.Platform.MacOS.Hid;
 
-internal static class MacOsHidInterop
+internal static partial class MacOsHidInterop
 {
     private const string CoreFoundationLibrary = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
     private const string IOKitLibrary = "/System/Library/Frameworks/IOKit.framework/IOKit";
@@ -22,7 +22,7 @@ internal static class MacOsHidInterop
         devices = [];
         error = string.Empty;
 
-        manager = IOHIDManagerCreate(IntPtr.Zero, IntPtr.Zero);
+        manager = IOHIDManagerCreate(IntPtr.Zero, 0);
         if (manager == IntPtr.Zero)
         {
             error = "IOHIDManagerCreate failed.";
@@ -38,7 +38,7 @@ internal static class MacOsHidInterop
             return true;
         }
 
-        var count = CFSetGetCount(deviceSet).ToInt32();
+        var count = (int)CFSetGetCount(deviceSet);
         if (count <= 0)
         {
             devices = [];
@@ -72,7 +72,7 @@ internal static class MacOsHidInterop
             return 0;
         }
 
-        return !CFNumberGetValue(property, KCFNumberSInt64Type, out long value)
+        return !CFNumberGetValue(property, KCFNumberSInt64Type, out var value)
             ? 0
             : checked((int)value);
     }
@@ -98,20 +98,21 @@ internal static class MacOsHidInterop
             return string.Empty;
         }
 
-        var buffer = new byte[maxBufferSize + 1];
+        var requiredLength = checked((int)maxBufferSize + 1);
+        Span<byte> buffer = requiredLength <= 256 ? stackalloc byte[requiredLength] : new byte[requiredLength];
         if (!CFStringGetCString(property, buffer, buffer.Length, KCFStringEncodingUtf8))
         {
             return string.Empty;
         }
 
-        var terminatorIndex = Array.IndexOf(buffer, (byte)0);
-        var byteCount = terminatorIndex >= 0 ? terminatorIndex : buffer.Length;
-        return Encoding.UTF8.GetString(buffer, 0, byteCount);
+        var terminatorIndex = buffer.IndexOf((byte)0);
+        var utf8Bytes = terminatorIndex >= 0 ? buffer[..terminatorIndex] : buffer;
+        return Encoding.UTF8.GetString(utf8Bytes);
     }
 
     public static bool TryOpenDevice(IntPtr device, out string error)
     {
-        var result = IOHIDDeviceOpen(device, IntPtr.Zero);
+        var result = IOHIDDeviceOpen(device, 0);
         if (result == KIOReturnSuccess)
         {
             error = string.Empty;
@@ -142,7 +143,7 @@ internal static class MacOsHidInterop
     {
         if (device != IntPtr.Zero)
         {
-            _ = IOHIDDeviceClose(device, IntPtr.Zero);
+            _ = IOHIDDeviceClose(device, 0);
         }
     }
 
@@ -164,62 +165,64 @@ internal static class MacOsHidInterop
         }
     }
 
-    [DllImport(IOKitLibrary)]
-    private static extern IntPtr IOHIDManagerCreate(IntPtr allocator, IntPtr options);
+    [LibraryImport(IOKitLibrary)]
+    private static partial IntPtr IOHIDManagerCreate(IntPtr allocator, uint options);
 
-    [DllImport(IOKitLibrary)]
-    private static extern void IOHIDManagerSetDeviceMatching(IntPtr manager, IntPtr matching);
+    [LibraryImport(IOKitLibrary)]
+    private static partial void IOHIDManagerSetDeviceMatching(IntPtr manager, IntPtr matching);
 
-    [DllImport(IOKitLibrary)]
-    private static extern IntPtr IOHIDManagerCopyDevices(IntPtr manager);
+    [LibraryImport(IOKitLibrary)]
+    private static partial IntPtr IOHIDManagerCopyDevices(IntPtr manager);
 
-    [DllImport(IOKitLibrary)]
-    private static extern IntPtr IOHIDDeviceGetProperty(IntPtr device, IntPtr key);
+    [LibraryImport(IOKitLibrary)]
+    private static partial IntPtr IOHIDDeviceGetProperty(IntPtr device, IntPtr key);
 
-    [DllImport(IOKitLibrary)]
-    private static extern IntPtr IOHIDDeviceGetService(IntPtr device);
+    [LibraryImport(IOKitLibrary)]
+    private static partial IntPtr IOHIDDeviceGetService(IntPtr device);
 
-    [DllImport(IOKitLibrary)]
-    private static extern int IORegistryEntryGetRegistryEntryID(IntPtr entry, out ulong entryId);
+    [LibraryImport(IOKitLibrary)]
+    private static partial int IORegistryEntryGetRegistryEntryID(IntPtr entry, out ulong entryId);
 
-    [DllImport(IOKitLibrary)]
-    private static extern int IOHIDDeviceOpen(IntPtr device, IntPtr options);
+    [LibraryImport(IOKitLibrary)]
+    private static partial int IOHIDDeviceOpen(IntPtr device, uint options);
 
-    [DllImport(IOKitLibrary)]
-    private static extern int IOHIDDeviceClose(IntPtr device, IntPtr options);
+    [LibraryImport(IOKitLibrary)]
+    private static partial int IOHIDDeviceClose(IntPtr device, uint options);
 
-    [DllImport(IOKitLibrary)]
-    private static extern uint IOHIDCheckAccess(uint requestType);
+    [LibraryImport(IOKitLibrary)]
+    private static partial uint IOHIDCheckAccess(uint requestType);
 
-    [DllImport(IOKitLibrary)]
-    [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool IOHIDRequestAccess(uint requestType);
+    [LibraryImport(IOKitLibrary)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static partial bool IOHIDRequestAccess(uint requestType);
 
-    [DllImport(CoreFoundationLibrary)]
-    private static extern IntPtr CFSetGetCount(IntPtr set);
+    [LibraryImport(CoreFoundationLibrary)]
+    private static partial nint CFSetGetCount(IntPtr set);
 
-    [DllImport(CoreFoundationLibrary)]
-    private static extern void CFSetGetValues(IntPtr set, [Out] IntPtr[] values);
+    [LibraryImport(CoreFoundationLibrary)]
+    private static partial void CFSetGetValues(IntPtr set, Span<IntPtr> values);
 
-    [DllImport(CoreFoundationLibrary)]
-    private static extern bool CFNumberGetValue(IntPtr number, int numberType, out long value);
+    [LibraryImport(CoreFoundationLibrary)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static partial bool CFNumberGetValue(IntPtr number, int numberType, out long value);
 
-    [DllImport(CoreFoundationLibrary)]
-    private static extern long CFStringGetLength(IntPtr handle);
+    [LibraryImport(CoreFoundationLibrary)]
+    private static partial nint CFStringGetLength(IntPtr handle);
 
-    [DllImport(CoreFoundationLibrary)]
-    private static extern long CFStringGetMaximumSizeForEncoding(long length, uint encoding);
+    [LibraryImport(CoreFoundationLibrary)]
+    private static partial nint CFStringGetMaximumSizeForEncoding(nint length, uint encoding);
 
-    [DllImport(CoreFoundationLibrary)]
-    private static extern bool CFStringGetCString(IntPtr handle, byte[] buffer, nint bufferSize, uint encoding);
+    [LibraryImport(CoreFoundationLibrary)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static partial bool CFStringGetCString(IntPtr handle, Span<byte> buffer, nint bufferSize, uint encoding);
 
-    [DllImport(CoreFoundationLibrary)]
-    private static extern IntPtr CFStringCreateWithCString(IntPtr allocator, string value, uint encoding);
+    [LibraryImport(CoreFoundationLibrary, StringMarshalling = StringMarshalling.Utf8)]
+    private static partial IntPtr CFStringCreateWithCString(IntPtr allocator, string value, uint encoding);
 
-    [DllImport(CoreFoundationLibrary)]
-    private static extern void CFRelease(IntPtr handle);
+    [LibraryImport(CoreFoundationLibrary)]
+    private static partial void CFRelease(IntPtr handle);
 
-    internal sealed class CfStringHandle : IDisposable
+    internal readonly struct CfStringHandle : IDisposable
     {
         public CfStringHandle(string value)
         {

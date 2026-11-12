@@ -4,6 +4,7 @@
     <AssemblyName>PowerGauge</AssemblyName>
     <AssemblyTitle>PowerGauge</AssemblyTitle>
     <Description>Tray battery monitor for supported wireless devices.</Description>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <ApplicationManifest Condition="'$(OS)' == 'Windows_NT' or $([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win'))">app.manifest</ApplicationManifest>
   </PropertyGroup>

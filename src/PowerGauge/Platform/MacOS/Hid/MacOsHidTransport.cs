@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 using PowerGauge.Domain;
@@ -7,7 +6,7 @@ using PowerGauge.Platform.Abstractions;
 
 namespace PowerGauge.Platform.MacOS.Hid;
 
-public sealed class MacOsHidTransport : IHidTransport
+public sealed partial class MacOsHidTransport : IHidTransport
 {
     public HidOpenResult Open(HidDeviceInfo device)
     {
@@ -94,37 +93,53 @@ public sealed class MacOsHidTransport : IHidTransport
         }
 
         public bool TryExchangeFeatureReport(
-            byte[] request,
-            byte[] response,
+            ReadOnlySpan<byte> request,
+            Span<byte> response,
             HidFeatureResponseClassifier? responseClassifier,
             out PowerFailureKind failureKind,
             out string error)
         {
             failureKind = PowerFailureKind.None;
             error = string.Empty;
+
+            if (request.IsEmpty)
+            {
+                failureKind = PowerFailureKind.UnsupportedResponse;
+                error = "IOHIDDeviceSetReport failed: empty request.";
+                return false;
+            }
+
             var classify = responseClassifier ?? AcceptAnyResponse;
             var sawPendingResponse = false;
             var sawUnrelatedResponse = false;
+            var reportId = request[0];
 
+            ReadOnlySpan<int> offsets = request.Length > 1 && response.Length > 1 && reportId == 0x00
+                ? [0, 1]
+                : [0];
             ReadOnlySpan<int> delays = [35, 50, 70, 100, 150, 225];
-            foreach (var layout in GetLayouts(request, response))
+
+            foreach (var offset in offsets)
             {
+                var layoutDescription = offset == 0 ? "full payload" : "stripped zero report id";
+                var requestSlice = request[offset..];
+
                 foreach (var delayMs in delays)
                 {
-                    Array.Clear(response);
-                    if (request.Length > 0 && response.Length > 0)
+                    response.Clear();
+                    if (!response.IsEmpty)
                     {
-                        response[0] = request[0];
+                        response[0] = reportId;
                     }
 
-                    if (!TrySetLayoutFeature(_device, layout, out error))
+                    if (!TrySetSliceFeature(_device, reportId, requestSlice, layoutDescription, out error))
                     {
                         continue;
                     }
 
                     Thread.Sleep(delayMs);
 
-                    if (!TryGetLayoutFeature(_device, layout, response, out error))
+                    if (!TryGetSliceFeature(_device, reportId, response, offset, layoutDescription, out error))
                     {
                         continue;
                     }
@@ -182,65 +197,49 @@ public sealed class MacOsHidTransport : IHidTransport
             MacOsHidInterop.Release(_manager);
         }
 
-        private static IEnumerable<ReportLayout> GetLayouts(byte[] request, byte[] response)
+        private static bool TrySetSliceFeature(IntPtr device, byte reportId, ReadOnlySpan<byte> payload, string description, out string error)
         {
-            if (request.Length == 0)
+            if (payload.IsEmpty)
             {
-                yield break;
-            }
-
-            yield return new ReportLayout(request[0], request, 0, response, 0, "full payload");
-
-            if (request.Length > 1 && response.Length > 1 && request[0] == 0x00)
-            {
-                yield return new ReportLayout(request[0], request, 1, response, 1, "stripped zero report id");
-            }
-        }
-
-        private static bool TrySetLayoutFeature(IntPtr device, ReportLayout layout, out string error)
-        {
-            var payloadLength = layout.Request.Length - layout.RequestOffset;
-            if (payloadLength <= 0)
-            {
-                error = $"IOHIDDeviceSetReport failed for {layout.Description}: empty request.";
+                error = $"IOHIDDeviceSetReport failed for {description}: empty request.";
                 return false;
             }
 
-            var payload = new byte[payloadLength];
-            Array.Copy(layout.Request, layout.RequestOffset, payload, 0, payload.Length);
-
-            var result = IOHIDDeviceSetReport(device, MacOsHidInterop.FeatureReportType, layout.ReportId, payload, (nint)payload.Length);
+            var result = IOHIDDeviceSetReport(device, MacOsHidInterop.FeatureReportType, reportId, payload, payload.Length);
             if (result == 0)
             {
                 error = string.Empty;
                 return true;
             }
 
-            error = $"IOHIDDeviceSetReport failed for {layout.Description}: 0x{result:x8}";
+            error = $"IOHIDDeviceSetReport failed for {description}: 0x{result:x8}";
             return false;
         }
 
-        private static bool TryGetLayoutFeature(IntPtr device, ReportLayout layout, byte[] response, out string error)
+        private static bool TryGetSliceFeature(IntPtr device, byte reportId, Span<byte> response, int responseOffset, string description, out string error)
         {
-            var payloadLength = layout.ResponseTemplate.Length - layout.ResponseOffset;
-            if (payloadLength <= 0)
+            var payload = response[responseOffset..];
+            if (payload.IsEmpty)
             {
-                error = $"IOHIDDeviceGetReport failed for {layout.Description}: empty response buffer.";
+                error = $"IOHIDDeviceGetReport failed for {description}: empty response buffer.";
                 return false;
             }
 
-            var payload = new byte[payloadLength];
+            response.Clear();
+            response[0] = reportId;
             nint payloadSize = payload.Length;
-            var result = IOHIDDeviceGetReport(device, MacOsHidInterop.FeatureReportType, layout.ReportId, payload, ref payloadSize);
+            var result = IOHIDDeviceGetReport(device, MacOsHidInterop.FeatureReportType, reportId, payload, ref payloadSize);
             if (result != 0)
             {
-                error = $"IOHIDDeviceGetReport failed for {layout.Description}: 0x{result:x8}";
+                error = $"IOHIDDeviceGetReport failed for {description}: 0x{result:x8}";
                 return false;
             }
 
-            Array.Clear(response);
-            response[0] = layout.ReportId;
-            Array.Copy(payload, 0, response, layout.ResponseOffset, Math.Min((int)payloadSize, response.Length - layout.ResponseOffset));
+            if (payloadSize < payload.Length)
+            {
+                payload[(int)payloadSize..].Clear();
+            }
+
             error = string.Empty;
             return true;
         }
@@ -249,13 +248,11 @@ public sealed class MacOsHidTransport : IHidTransport
         {
             return HidFeatureResponseStatus.Accepted;
         }
-
-        private sealed record ReportLayout(byte ReportId, byte[] Request, int RequestOffset, byte[] ResponseTemplate, int ResponseOffset, string Description);
     }
 
-    [DllImport("/System/Library/Frameworks/IOKit.framework/IOKit")]
-    private static extern int IOHIDDeviceSetReport(IntPtr device, int reportType, byte reportId, byte[] report, nint reportLength);
+    [LibraryImport("/System/Library/Frameworks/IOKit.framework/IOKit")]
+    private static partial int IOHIDDeviceSetReport(IntPtr device, int reportType, nint reportId, ReadOnlySpan<byte> report, nint reportLength);
 
-    [DllImport("/System/Library/Frameworks/IOKit.framework/IOKit")]
-    private static extern int IOHIDDeviceGetReport(IntPtr device, int reportType, byte reportId, byte[] report, ref nint reportLength);
+    [LibraryImport("/System/Library/Frameworks/IOKit.framework/IOKit")]
+    private static partial int IOHIDDeviceGetReport(IntPtr device, int reportType, nint reportId, Span<byte> report, ref nint reportLength);
 }

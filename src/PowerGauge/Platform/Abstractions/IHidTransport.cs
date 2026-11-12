@@ -26,8 +26,8 @@ public interface IHidTransport
 public interface IHidDeviceSession : IDisposable
 {
     bool TryExchangeFeatureReport(
-        byte[] request,
-        byte[] response,
+        ReadOnlySpan<byte> request,
+        Span<byte> response,
         HidFeatureResponseClassifier? responseClassifier,
         out PowerFailureKind failureKind,
         out string error);

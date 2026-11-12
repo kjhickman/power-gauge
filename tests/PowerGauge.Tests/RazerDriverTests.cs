@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using PowerGauge.Devices.Hid;
 using PowerGauge.Devices.Razer;
 using PowerGauge.Domain;
@@ -10,6 +11,34 @@ namespace PowerGauge.Tests;
 
 public sealed class RazerDriverTests
 {
+    [Fact]
+    public void RazerProtocol_ReadPowerResponse_UsesStackBuffersWithoutArrayAllocations()
+    {
+        var device = new HidDeviceInfo(
+            "macos-entry-101",
+            RazerProtocol.VendorId,
+            0x007a,
+            91,
+            "Razer Viper Ultimate",
+            HidUsagePages.GenericDesktop,
+            HidUsagePages.MouseUsage);
+
+        var session = new ZeroAllocStubSession();
+        var diagnostics = new StringBuilder(1024);
+
+        // Warmup JIT & cached method-group delegate
+        _ = RazerProtocol.ReadPowerResponse(device, session, [0x1f], diagnostics, RazerProtocol.GetBatteryCommandId, "Battery");
+        diagnostics.Clear();
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var result = RazerProtocol.ReadPowerResponse(device, session, [0x1f], diagnostics, RazerProtocol.GetBatteryCommandId, "Battery");
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        var payload = Assert.IsType<RazerPowerPayload>(result.Value);
+        Assert.Equal(204, payload.PrimaryArg);
+        // Only the boxed 24-byte union case wrapper; zero 90/91-byte request/response/hex-string allocations
+        Assert.True(allocated <= 32, $"Expected <= 32 bytes allocated, actual: {allocated}");
+    }
     [Fact]
     public void ViperUltimate_PrefersWiredOverWireless_AndReusesSingleSessionAcrossCommands()
     {
@@ -241,5 +270,30 @@ public sealed class RazerDriverTests
 
             return (true, response, PowerFailureKind.None, string.Empty);
         });
+    }
+
+    private sealed class ZeroAllocStubSession : IHidDeviceSession
+    {
+        public bool TryExchangeFeatureReport(
+            ReadOnlySpan<byte> request,
+            Span<byte> response,
+            HidFeatureResponseClassifier? responseClassifier,
+            out PowerFailureKind failureKind,
+            out string error)
+        {
+            failureKind = PowerFailureKind.None;
+            error = string.Empty;
+            response.Clear();
+            response[1 + 0] = 0x02;
+            response[1 + 1] = request[1 + 1];
+            response[1 + 6] = request[1 + 6];
+            response[1 + 7] = request[1 + 7];
+            response[1 + 9] = 204;
+            return responseClassifier is null || responseClassifier(request, response) == HidFeatureResponseStatus.Accepted;
+        }
+
+        public void Dispose()
+        {
+        }
     }
 }

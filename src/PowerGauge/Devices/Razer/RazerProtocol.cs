@@ -1,16 +1,15 @@
 using System;
-using System.Collections.Generic;
 using System.Text;
 using PowerGauge.Domain;
 using PowerGauge.Platform.Abstractions;
 
 namespace PowerGauge.Devices.Razer;
 
-internal sealed record RazerPowerPayload(byte[] Bytes);
+internal readonly record struct RazerPowerPayload(byte PrimaryArg, byte TertiaryArg);
 
-internal sealed record RazerCommandTimeout(byte[] Bytes);
+internal readonly record struct RazerCommandTimeout;
 
-internal sealed record RazerReadFailure(PowerFailureKind Kind);
+internal readonly record struct RazerReadFailure(PowerFailureKind Kind);
 
 internal union RazerReadResult(RazerPowerPayload, RazerCommandTimeout, RazerReadFailure);
 
@@ -22,25 +21,24 @@ internal static class RazerProtocol
     public const byte GetBatteryCommandId = 0x80;
     public const byte GetChargingStatusCommandId = 0x84;
 
-    public static byte[] BuildRequest(int reportLength, byte transactionId, byte commandClass, byte commandId, byte dataSize = 0x02)
+    public static void WriteRequest(Span<byte> request, byte transactionId, byte commandClass, byte commandId, byte dataSize = 0x02)
     {
-        var request = new byte[reportLength];
+        request.Clear();
         request[0] = 0x00;
         request[1] = transactionId;
         request[5] = dataSize;
         request[6] = commandClass;
         request[7] = commandId;
         request[88] = CalculateChecksum(request);
-        return request;
     }
 
-    public static bool IsSuccessResponse(IReadOnlyList<byte> response, byte transactionId, byte commandClass, byte commandId)
+    public static bool IsSuccessResponse(ReadOnlySpan<byte> response, byte transactionId, byte commandClass, byte commandId)
     {
         return MatchesHeader(response, transactionId, commandClass, commandId)
             && response[0] is 0x00 or 0x02;
     }
 
-    public static bool IsTimeoutResponse(IReadOnlyList<byte> response, byte transactionId, byte commandClass, byte commandId)
+    public static bool IsTimeoutResponse(ReadOnlySpan<byte> response, byte transactionId, byte commandClass, byte commandId)
     {
         return MatchesHeader(response, transactionId, commandClass, commandId)
             && response[0] == 0x04;
@@ -85,24 +83,27 @@ internal static class RazerProtocol
         string responseLabel)
     {
         var reportLength = Math.Max(ReportLength, device.FeatureReportLength);
-        diagnostics.AppendLine($"Feature report length: {reportLength}");
+        diagnostics.Append("Feature report length: ").Append(reportLength).AppendLine();
         diagnostics.AppendLine("Using native HID feature session.");
+
         var payloadOffset = reportLength == ReportLength + 1 ? 1 : 0;
         var payloadLength = reportLength - payloadOffset;
-        byte[]? timeoutPayload = null;
+        var sawCommandTimeout = false;
         var sawSleepingPlaceholder = false;
         var sawTransportTimeout = false;
 
+        Span<byte> request = reportLength <= 256 ? stackalloc byte[reportLength] : new byte[reportLength];
+        Span<byte> response = reportLength <= 256 ? stackalloc byte[reportLength] : new byte[reportLength];
+
         foreach (var transactionId in candidateTransactionIds)
         {
-            var requestPayload = BuildRequest(payloadLength, transactionId, PowerCommandClass, commandId);
-            var request = new byte[reportLength];
-            Array.Copy(requestPayload, 0, request, payloadOffset, requestPayload.Length);
+            request.Clear();
+            WriteRequest(request.Slice(payloadOffset, payloadLength), transactionId, PowerCommandClass, commandId);
 
-            var response = new byte[reportLength];
+            response.Clear();
             if (!session.TryExchangeFeatureReport(request, response, ClassifyFeatureResponse, out var exchangeFailure, out var error))
             {
-                diagnostics.AppendLine($"Transaction 0x{transactionId:x2} failed: {error}");
+                diagnostics.Append("Transaction 0x").Append(transactionId.ToString("x2")).Append(" failed: ").AppendLine(error);
                 if (exchangeFailure == PowerFailureKind.DeviceSleeping)
                 {
                     sawSleepingPlaceholder = true;
@@ -115,23 +116,27 @@ internal static class RazerProtocol
                 continue;
             }
 
-            var payload = response.AsSpan(payloadOffset, payloadLength).ToArray();
-            diagnostics.AppendLine($"{responseLabel} transaction 0x{transactionId:x2} response: {FormatReport(payload)}");
+            var payload = response.Slice(payloadOffset, payloadLength);
+            diagnostics.Append(responseLabel).Append(" transaction 0x");
+            AppendByteHex(diagnostics, transactionId);
+            diagnostics.Append(" response: ");
+            AppendReportHex(diagnostics, payload);
+            diagnostics.AppendLine();
 
             if (IsSuccessResponse(payload, transactionId, PowerCommandClass, commandId))
             {
-                return new RazerPowerPayload(payload);
+                return new RazerPowerPayload(payload[9], payload[11]);
             }
 
             if (IsTimeoutResponse(payload, transactionId, PowerCommandClass, commandId))
             {
-                timeoutPayload ??= payload;
+                sawCommandTimeout = true;
             }
         }
 
-        if (timeoutPayload is not null)
+        if (sawCommandTimeout)
         {
-            return new RazerCommandTimeout(timeoutPayload);
+            return new RazerCommandTimeout();
         }
 
         if (sawSleepingPlaceholder)
@@ -158,32 +163,46 @@ internal static class RazerProtocol
         };
     }
 
-    public static int ParseBatteryPercent(IReadOnlyList<byte> response)
+    public static int ParseBatteryPercent(byte rawBatteryByte)
     {
-        return (int)Math.Round(response[9] * 100.0 / 255.0, MidpointRounding.AwayFromZero);
+        return (int)Math.Round(rawBatteryByte * 100.0 / 255.0, MidpointRounding.AwayFromZero);
     }
 
-    public static bool ParseChargingStatus(IReadOnlyList<byte> response)
+    public static bool ParseChargingStatus(RazerPowerPayload payload)
     {
-        return response[9] == 0x01 || response[11] == 0x01;
+        return payload.PrimaryArg == 0x01 || payload.TertiaryArg == 0x01;
     }
 
-    public static string FormatReport(byte[] report)
+    private static void AppendReportHex(StringBuilder builder, ReadOnlySpan<byte> report)
     {
-        return BitConverter.ToString(report, 0, Math.Min(report.Length, ReportLength))
-            .Replace('-', ' ')
-            .ToLowerInvariant();
+        var length = Math.Min(report.Length, ReportLength);
+        for (var i = 0; i < length; i++)
+        {
+            if (i > 0)
+            {
+                builder.Append(' ');
+            }
+
+            AppendByteHex(builder, report[i]);
+        }
     }
 
-    private static bool MatchesHeader(IReadOnlyList<byte> response, byte transactionId, byte commandClass, byte commandId)
+    private static void AppendByteHex(StringBuilder builder, byte value)
     {
-        return response.Count >= ReportLength
+        const string hex = "0123456789abcdef";
+        builder.Append(hex[value >> 4]);
+        builder.Append(hex[value & 0x0f]);
+    }
+
+    private static bool MatchesHeader(ReadOnlySpan<byte> response, byte transactionId, byte commandClass, byte commandId)
+    {
+        return response.Length >= ReportLength
             && response[1] == transactionId
             && response[6] == commandClass
             && response[7] == commandId;
     }
 
-    private static byte CalculateChecksum(IReadOnlyList<byte> report)
+    private static byte CalculateChecksum(ReadOnlySpan<byte> report)
     {
         byte checksum = 0x00;
         for (var index = 2; index <= 87; index++)
