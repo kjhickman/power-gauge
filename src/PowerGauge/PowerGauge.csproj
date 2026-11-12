@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <AssemblyName>PowerGauge</AssemblyName>
     <AssemblyTitle>PowerGauge</AssemblyTitle>
     <Description>Tray battery monitor for supported Razer wireless mice.</Description>
