@@ -3,6 +3,8 @@ using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
+using Avalonia.Data;
+using Avalonia.Data.Converters;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.MarkupExtensions;
@@ -20,6 +22,7 @@ internal static class TrayMenuTheme
     private const string ItemHoverBrushKey = "TrayItemHoverBackground";
     private const string ItemPressedBrushKey = "TrayItemPressedBackground";
     private const string SeparatorBrushKey = "TrayMenuSeparator";
+    private static readonly FuncValueConverter<int, bool> HasItemsConverter = new(static count => count > 0);
 
     public static ResourceDictionary CreateResources()
     {
@@ -212,19 +215,75 @@ internal static class TrayMenuTheme
                         [!ContentPresenter.ContentTemplateProperty] = item[!HeaderedSelectingItemsControl.HeaderTemplateProperty],
                     }.RegisterInNameScope(scope);
 
-                    return new Border
+                    var chevron = new TextBlock
+                    {
+                        Name = "PART_Chevron",
+                        Text = "›",
+                        FontSize = 15,
+                        Margin = new Thickness(12, -1, 0, 0),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        [!Visual.IsVisibleProperty] = new TemplateBinding(ItemsControl.ItemCountProperty) { Converter = HasItemsConverter },
+                        [!TextBlock.ForegroundProperty] = new DynamicResourceExtension(ItemDisabledForegroundKey),
+                    }.RegisterInNameScope(scope);
+
+                    var row = new Grid
+                    {
+                        ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+                    };
+                    Grid.SetColumn(headerPresenter, 0);
+                    Grid.SetColumn(chevron, 1);
+                    row.Children.Add(headerPresenter);
+                    row.Children.Add(chevron);
+
+                    var subItemsPresenter = new ItemsPresenter
+                    {
+                        Name = "PART_ItemsPresenter",
+                        [!ItemsPresenter.ItemsPanelProperty] = item[!ItemsControl.ItemsPanelProperty],
+                    }.RegisterInNameScope(scope);
+                    KeyboardNavigation.SetTabNavigation(subItemsPresenter, KeyboardNavigationMode.Continue);
+
+                    var popup = new Popup
+                    {
+                        Name = "PART_Popup",
+                        WindowManagerAddShadowHint = false,
+                        Placement = PlacementMode.RightEdgeAlignedTop,
+                        HorizontalOffset = 2,
+                        IsLightDismissEnabled = false,
+                        [!Popup.IsOpenProperty] = item[!!MenuItem.IsSubMenuOpenProperty],
+                        Child = new Border
+                        {
+                            MinWidth = 200,
+                            Padding = new Thickness(2, 4),
+                            BorderThickness = new Thickness(1),
+                            CornerRadius = new CornerRadius(8),
+                            [!Border.BackgroundProperty] = new DynamicResourceExtension(MenuBackgroundKey),
+                            [!Border.BorderBrushProperty] = new DynamicResourceExtension(MenuBorderKey),
+                            Child = subItemsPresenter,
+                        },
+                    }.RegisterInNameScope(scope);
+
+                    var rootPanel = new Panel();
+                    rootPanel.Children.Add(new Border
                     {
                         Name = "PART_LayoutRoot",
                         CornerRadius = new CornerRadius(4),
                         Margin = new Thickness(4, 1),
                         Padding = new Thickness(10, 6),
                         [!Border.BackgroundProperty] = item[!TemplatedControl.BackgroundProperty],
-                        Child = headerPresenter,
-                    }.RegisterInNameScope(scope);
+                        Child = row,
+                    }.RegisterInNameScope(scope));
+                    rootPanel.Children.Add(popup);
+
+                    return rootPanel;
                 })),
             },
             Children =
             {
+                new Style(x => x.Nesting().Class(":open"))
+                {
+                    Setters = { new Setter(TemplatedControl.BackgroundProperty, new DynamicResourceExtension(ItemHoverBrushKey)) },
+                },
                 new Style(x => x.Nesting().Class(":selected"))
                 {
                     Setters = { new Setter(TemplatedControl.BackgroundProperty, new DynamicResourceExtension(ItemHoverBrushKey)) },

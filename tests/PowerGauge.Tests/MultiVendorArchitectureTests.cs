@@ -140,7 +140,9 @@ public sealed class MultiVendorArchitectureTests
         Assert.Equal(28, uiResult.IconBatteryPercent);
         Assert.Equal(2, uiResult.DeviceSections.Count);
         Assert.Equal("Keychron K2 Pro (Bluetooth)", uiResult.DeviceSections[0].DeviceHeader);
+        Assert.Equal("28%", uiResult.DeviceSections[0].BatteryStatusHeader);
         Assert.Equal("Razer Viper Ultimate (Wireless)", uiResult.DeviceSections[1].DeviceHeader);
+        Assert.Equal("72%", uiResult.DeviceSections[1].BatteryStatusHeader);
         Assert.False(uiResult.ShowDiagnostics);
     }
 
@@ -211,8 +213,27 @@ public sealed class MultiVendorArchitectureTests
         var result = await controller.RefreshAsync();
 
         Assert.Null(result.IconBatteryPercent);
-        Assert.Equal("Battery: unavailable · Sleeping", result.DeviceSections[0].BatteryStatusHeader);
+        Assert.Equal("Sleeping", result.DeviceSections[0].BatteryStatusHeader);
         Assert.False(result.ShowDiagnostics);
+    }
+
+    [Fact]
+    public async Task PollingController_WhenNoSupportedDeviceConnected_UsesSingleStatusLineWithoutDiagnostics()
+    {
+        var emptyProvider = new StubProvider(_ => new ProviderProbeResult(
+            [],
+            PowerFailureKind.None,
+            "no devices",
+            "No supported wireless device detected."));
+
+        var controller = new PowerPollingController(new CompositeDevicePowerReader([emptyProvider], ProbeLogWriter.Disabled));
+        var result = await controller.RefreshAsync();
+
+        var section = Assert.Single(result.DeviceSections);
+        Assert.Equal("No supported devices", section.DeviceHeader);
+        Assert.Null(section.BatteryStatusHeader);
+        Assert.False(result.ShowDiagnostics);
+        Assert.Null(result.IconBatteryPercent);
     }
 
     [Fact]

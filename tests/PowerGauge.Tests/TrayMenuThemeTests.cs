@@ -56,6 +56,18 @@ public sealed class TrayMenuThemeTests
         ((IPseudoClasses)disabledItem.Classes).Set(":pointerover", true);
         disabledItem.IsSelected = true;
         Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(disabledBorder.Background).Color);
+
+        var enabledChevron = enabledItem.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "PART_Chevron");
+        Assert.False(enabledChevron.IsVisible);
+
+        var submenuParent = new MenuItem { Header = "More", Theme = menuItemTheme };
+        submenuParent.Items.Add(new MenuItem { Header = "Refresh", Theme = menuItemTheme });
+        stack.Children.Add(submenuParent);
+        submenuParent.ApplyStyling();
+        submenuParent.ApplyTemplate();
+
+        var submenuChevron = submenuParent.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "PART_Chevron");
+        Assert.True(submenuChevron.IsVisible);
     }
 
     [Fact]
@@ -131,5 +143,65 @@ public sealed class TrayMenuThemeTests
 
         confirmButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.Equal(true, decision);
+    }
+
+    [Fact]
+    public void TrayPresenter_SyncsCompactRootMenu_AndTucksSecondaryOptionsIntoMoreSubmenu()
+    {
+        var presenter = new TrayPresenter(() => { }, () => { }, () => { }, initialColors: null, renderIcons: false);
+
+        // Idle update state: Check for updates lives in More, hidden in root
+        presenter.ApplyUpdateStatus(new TrayUpdateStatus("Version: 0.4.0", "Check for updates", IsActionEnabled: true, ShowActionInRootMenu: false));
+
+        // Disconnected state: single device line + separator + [hidden update] + More + Quit
+        presenter.Apply(new BatteryProbeResult(
+            [new DeviceBatteryDisplay("No supported devices")],
+            "Last checked: 12:00:00",
+            string.Empty,
+            ShowDiagnostics: false,
+            "PowerGauge\nNo supported devices"));
+
+        var visibleRootDisconnected = presenter.RootMenu.Items
+            .OfType<NativeMenuItem>()
+            .Where(i => i.IsVisible)
+            .Select(i => i.Header ?? string.Empty)
+            .ToArray();
+        Assert.Equal(["No supported devices", "-", "More", "Quit"], visibleRootDisconnected);
+
+        var visibleMoreIdle = presenter.MoreMenu.Items
+            .OfType<NativeMenuItem>()
+            .Where(i => i.IsVisible)
+            .Select(i => i.Header ?? string.Empty)
+            .ToArray();
+        Assert.Equal(["Last checked: 12:00:00", "Version: 0.4.0", "-", "Refresh", "Check for updates", "Open diagnostics log"], visibleMoreIdle);
+
+        // Connected device + update available: 2-line device section + Install update surfaced in root
+        presenter.Apply(new BatteryProbeResult(
+            [new DeviceBatteryDisplay("Razer Viper Ultimate (Wireless)", "84%")],
+            "Last updated: 12:01:00",
+            string.Empty,
+            ShowDiagnostics: false,
+            "PowerGauge\nRazer Viper Ultimate: 84%",
+            IconBatteryPercent: 84));
+        presenter.ApplyUpdateStatus(new TrayUpdateStatus(
+            "Version: 0.4.0 (v0.5.0 available)",
+            "Install update (v0.5.0)",
+            IsActionEnabled: true,
+            "Update available: v0.5.0",
+            ShowActionInRootMenu: true));
+
+        var visibleRootConnected = presenter.RootMenu.Items
+            .OfType<NativeMenuItem>()
+            .Where(i => i.IsVisible)
+            .Select(i => i.Header ?? string.Empty)
+            .ToArray();
+        Assert.Equal(["Razer Viper Ultimate (Wireless)", "84%", "-", "Install update (v0.5.0)", "More", "Quit"], visibleRootConnected);
+
+        var visibleMoreUpdateReady = presenter.MoreMenu.Items
+            .OfType<NativeMenuItem>()
+            .Where(i => i.IsVisible)
+            .Select(i => i.Header ?? string.Empty)
+            .ToArray();
+        Assert.Equal(["Last updated: 12:01:00", "Version: 0.4.0 (v0.5.0 available)", "-", "Refresh", "Open diagnostics log"], visibleMoreUpdateReady);
     }
 }

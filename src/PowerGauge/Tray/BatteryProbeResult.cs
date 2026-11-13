@@ -8,7 +8,7 @@ namespace PowerGauge.Tray;
 
 public sealed record DeviceBatteryDisplay(
     string DeviceHeader,
-    string BatteryStatusHeader);
+    string? BatteryStatusHeader = null);
 
 public sealed record BatteryProbeResult(
     IReadOnlyList<DeviceBatteryDisplay> DeviceSections,
@@ -65,21 +65,27 @@ public sealed record BatteryProbeResult(
 
     private static BatteryProbeResult BuildEmptyResult(PowerProbeReport report)
     {
+        var isUnsupportedPlatform = string.Equals(report.ResultDetail, "platform unsupported", StringComparison.Ordinal);
+        var hasFailure = report.FailureKind != PowerFailureKind.None || isUnsupportedPlatform;
+
         var deviceDescription = report.FailureKind switch
         {
             PowerFailureKind.EnumerationFailed => "HID enumeration failed",
-            _ when string.Equals(report.ResultDetail, "platform unsupported", StringComparison.Ordinal) => "Unsupported platform",
-            _ => "No supported wireless device detected",
+            _ when isUnsupportedPlatform => "Unsupported platform",
+            _ => "No supported devices",
         };
-        var statusLabel = FormatFailureLabel(report.FailureKind, fallbackTimestamp: null);
-        var diagnosticsHeader = Truncate($"Diagnostics: {LastDiagnosticLine(report.Diagnostics)}", 80);
-        var toolTipText = $"{AppIdentity.ProductName}\n{deviceDescription}\nStatus: {statusLabel}";
+        var diagnosticsHeader = hasFailure
+            ? Truncate($"Diagnostics: {LastDiagnosticLine(report.Diagnostics)}", 80)
+            : string.Empty;
+        var toolTipText = hasFailure
+            ? $"{AppIdentity.ProductName}\n{deviceDescription}\nStatus: {FormatFailureLabel(report.FailureKind, fallbackTimestamp: null)}"
+            : $"{AppIdentity.ProductName}\n{deviceDescription}";
 
         return new BatteryProbeResult(
-            [new DeviceBatteryDisplay(deviceDescription, $"Battery: unavailable · {statusLabel}")],
-            $"Last attempt: {report.Timestamp:HH:mm:ss}",
+            [new DeviceBatteryDisplay(deviceDescription)],
+            $"Last checked: {report.Timestamp:HH:mm:ss}",
             diagnosticsHeader,
-            true,
+            hasFailure,
             toolTipText,
             report.LogFilePath,
             null);
@@ -98,15 +104,20 @@ public sealed record BatteryProbeResult(
 
     private static ResolvedDeviceState ResolveSuccessfulDevice(DevicePowerSuccess success)
     {
-        var activeStatus = FormatActiveStatusLabel(success.IsCharging);
+        var menuStatus = success.IsCharging == true
+            ? $"{success.BatteryPercent}% · Charging"
+            : $"{success.BatteryPercent}%";
+
+        var tooltipStatus = success.IsCharging == true ? "Charging" : null;
+
         return new ResolvedDeviceState(
             success,
             success.DeviceDisplayName,
             success.BatteryPercent,
             success.IsCharging,
             success.Timestamp,
-            $"Battery: {success.BatteryPercent}% · {activeStatus}",
-            activeStatus,
+            menuStatus,
+            tooltipStatus,
             HasUnexpectedFailure: false);
     }
 
@@ -122,8 +133,8 @@ public sealed record BatteryProbeResult(
         var tooltipStatusLabel = FormatShortFailureLabel(failure.FailureKind);
 
         var menuBatteryStatusLine = effectiveBattery is int percent
-            ? $"Battery: {percent}% · {statusLabel}"
-            : $"Battery: unavailable · {statusLabel}";
+            ? $"{percent}% · {statusLabel}"
+            : statusLabel;
 
         return new ResolvedDeviceState(
             failure,
@@ -166,7 +177,9 @@ public sealed record BatteryProbeResult(
             builder.Append('\n');
             if (device.EffectiveBatteryPercent is int percent)
             {
-                builder.Append($"{shortName}: {percent}% ({device.TooltipStatusLabel})");
+                builder.Append(device.TooltipStatusLabel is { } status
+                    ? $"{shortName}: {percent}% ({status})"
+                    : $"{shortName}: {percent}%");
             }
             else
             {
@@ -175,16 +188,6 @@ public sealed record BatteryProbeResult(
         }
 
         return builder.ToString();
-    }
-
-    private static string FormatActiveStatusLabel(bool? isCharging)
-    {
-        return isCharging switch
-        {
-            true => "Charging",
-            false => "On battery",
-            _ => "Unavailable",
-        };
     }
 
     private static string FormatFailureLabel(PowerFailureKind failureKind, DateTimeOffset? fallbackTimestamp)
@@ -237,6 +240,6 @@ public sealed record BatteryProbeResult(
         bool? EffectiveIsCharging,
         DateTimeOffset EffectiveTimestamp,
         string MenuBatteryStatusLine,
-        string TooltipStatusLabel,
+        string? TooltipStatusLabel,
         bool HasUnexpectedFailure);
 }

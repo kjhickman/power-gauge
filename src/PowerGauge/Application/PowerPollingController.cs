@@ -44,8 +44,8 @@ public sealed class PowerPollingController : IDisposable
     public BatteryProbeResult CreateInitialResult()
     {
         return new BatteryProbeResult(
-            [new DeviceBatteryDisplay("Scanning wireless devices...", "Battery: probing...")],
-            $"Last updated: {DateTimeOffset.Now:HH:mm:ss}",
+            [new DeviceBatteryDisplay("Scanning wireless devices...")],
+            $"Last checked: {DateTimeOffset.Now:HH:mm:ss}",
             string.Empty,
             false,
             $"{AppIdentity.ProductName}\nRefreshing battery status...");

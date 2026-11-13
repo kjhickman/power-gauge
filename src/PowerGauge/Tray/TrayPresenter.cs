@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Avalonia.Controls;
@@ -14,53 +16,91 @@ public sealed partial class TrayPresenter
     private const uint WmTrayMouse = 0x0800; // WM_USER + 1024 in Avalonia.Win32.TrayIconImpl
     private const int WmRightButtonUp = 0x0205;
     private readonly TrayIconRenderer _trayIconRenderer = new();
+    private readonly bool _renderIcons;
     private readonly TrayIcon _trayIcon;
     private readonly NativeMenu _menu;
+    private readonly NativeMenu _moreMenu;
     private readonly List<DeviceMenuItems> _deviceMenuItems = [];
+    private readonly NativeMenuItem _rootUpdateMenuItem;
+    private readonly NativeMenuItem _moreUpdateMenuItem;
     private readonly NativeMenuItem _resultMenuItem;
     private readonly NativeMenuItem _versionMenuItem;
     private readonly NativeMenuItem _diagnosticsMenuItem;
-    private readonly NativeMenuItem _logMenuItem;
-    private readonly NativeMenuItem _updateMenuItem;
+    private readonly NativeMenuItem _openLogMenuItem;
+    private int _dynamicItemCount;
+    private string? _logFilePath;
     private string _baseToolTipText = AppIdentity.ProductName;
     private string? _updateTooltipNotice;
     private int? _currentBatteryPercent;
     private IntPtr _win32MessageWindow;
 
     public TrayPresenter(Action refreshNow, Action updateAction, Action quit, PlatformColorValues? initialColors = null)
+        : this(refreshNow, updateAction, quit, initialColors, renderIcons: true)
     {
+    }
+
+    internal TrayPresenter(
+        Action refreshNow,
+        Action updateAction,
+        Action quit,
+        PlatformColorValues? initialColors,
+        bool renderIcons)
+    {
+        _renderIcons = renderIcons;
         if (initialColors is not null)
         {
             _trayIconRenderer.UpdateTheme(TrayIconThemePalette.FromPlatformColors(initialColors));
         }
-        _resultMenuItem = CreateReadOnlyItem("Last updated: waiting to start");
+
+        _resultMenuItem = CreateReadOnlyItem("Last checked: waiting to start");
         _versionMenuItem = CreateReadOnlyItem($"Version: {AppIdentity.DisplayVersion}");
         _diagnosticsMenuItem = CreateReadOnlyItem(string.Empty);
-        _logMenuItem = CreateReadOnlyItem(string.Empty);
+        _diagnosticsMenuItem.IsVisible = false;
 
-        _menu = new NativeMenu();
-        _menu.Add(_resultMenuItem);
-        _menu.Add(_versionMenuItem);
-        _menu.Add(_diagnosticsMenuItem);
-        _menu.Add(_logMenuItem);
-        _menu.Add(new NativeMenuItemSeparator());
-        SyncDeviceSections([new DeviceBatteryDisplay("Device: probing...", "Battery: probing...")]);
-
-        var refreshMenuItem = new NativeMenuItem("Refresh now");
+        var refreshMenuItem = new NativeMenuItem("Refresh");
         refreshMenuItem.Click += (_, _) => refreshNow();
-        _menu.Add(refreshMenuItem);
 
-        _updateMenuItem = new NativeMenuItem("Check for updates");
-        _updateMenuItem.Click += (_, _) => updateAction();
-        _menu.Add(_updateMenuItem);
+        _moreUpdateMenuItem = new NativeMenuItem("Check for updates");
+        _moreUpdateMenuItem.Click += (_, _) => updateAction();
+
+        _openLogMenuItem = new NativeMenuItem("Open diagnostics log")
+        {
+            IsEnabled = false,
+        };
+        _openLogMenuItem.Click += (_, _) => OpenDiagnosticsLog();
+
+        _moreMenu = new NativeMenu();
+        _moreMenu.Add(_resultMenuItem);
+        _moreMenu.Add(_versionMenuItem);
+        _moreMenu.Add(_diagnosticsMenuItem);
+        _moreMenu.Add(new NativeMenuItemSeparator());
+        _moreMenu.Add(refreshMenuItem);
+        _moreMenu.Add(_moreUpdateMenuItem);
+        _moreMenu.Add(_openLogMenuItem);
+
+        _rootUpdateMenuItem = new NativeMenuItem("Install update")
+        {
+            IsVisible = false,
+        };
+        _rootUpdateMenuItem.Click += (_, _) => updateAction();
+
+        var moreMenuItem = new NativeMenuItem("More")
+        {
+            Menu = _moreMenu,
+        };
 
         var quitMenuItem = new NativeMenuItem("Quit");
         quitMenuItem.Click += (_, _) => quit();
+
+        _menu = new NativeMenu();
+        _menu.Add(_rootUpdateMenuItem);
+        _menu.Add(moreMenuItem);
         _menu.Add(quitMenuItem);
+        SyncDeviceSections([new DeviceBatteryDisplay("Scanning wireless devices...")]);
 
         _trayIcon = new TrayIcon
         {
-            Icon = _trayIconRenderer.Render(null),
+            Icon = _renderIcons ? _trayIconRenderer.Render(null) : null,
             ToolTipText = AppIdentity.ProductName,
             Menu = _menu,
             IsVisible = true,
@@ -70,12 +110,13 @@ public sealed partial class TrayPresenter
         {
             _trayIcon.Clicked += (_, _) => OpenWindowsTrayMenu();
         }
-
-        _diagnosticsMenuItem.IsVisible = false;
-        _logMenuItem.IsVisible = false;
     }
 
     public TrayIcon TrayIcon => _trayIcon;
+
+    internal NativeMenu RootMenu => _menu;
+
+    internal NativeMenu MoreMenu => _moreMenu;
 
     public void Apply(BatteryProbeResult result)
     {
@@ -83,17 +124,20 @@ public sealed partial class TrayPresenter
         _resultMenuItem.Header = result.ResultHeader;
         _diagnosticsMenuItem.Header = result.DiagnosticsHeader;
         _diagnosticsMenuItem.IsVisible = result.ShowDiagnostics;
-        _logMenuItem.Header = result.LogFilePath is null ? "Log: unavailable" : $"Log: {result.LogFilePath}";
-        _logMenuItem.IsVisible = result.ShowDiagnostics;
+        _logFilePath = result.LogFilePath;
+        _openLogMenuItem.IsEnabled = !string.IsNullOrWhiteSpace(_logFilePath);
         _currentBatteryPercent = result.IconBatteryPercent;
-        _trayIcon.Icon = _trayIconRenderer.Render(_currentBatteryPercent);
+        if (_renderIcons)
+        {
+            _trayIcon.Icon = _trayIconRenderer.Render(_currentBatteryPercent);
+        }
         _baseToolTipText = result.ToolTipText;
         UpdateToolTipText();
     }
 
     public void ApplyTheme(PlatformColorValues colorValues)
     {
-        if (_trayIconRenderer.UpdateTheme(TrayIconThemePalette.FromPlatformColors(colorValues)))
+        if (_trayIconRenderer.UpdateTheme(TrayIconThemePalette.FromPlatformColors(colorValues)) && _renderIcons)
         {
             _trayIcon.Icon = _trayIconRenderer.Render(_currentBatteryPercent);
         }
@@ -102,10 +146,37 @@ public sealed partial class TrayPresenter
     public void ApplyUpdateStatus(TrayUpdateStatus updateStatus)
     {
         _versionMenuItem.Header = updateStatus.VersionHeader;
-        _updateMenuItem.Header = updateStatus.ActionHeader;
-        _updateMenuItem.IsEnabled = updateStatus.IsActionEnabled;
+
+        _rootUpdateMenuItem.Header = updateStatus.ActionHeader;
+        _rootUpdateMenuItem.IsEnabled = updateStatus.IsActionEnabled;
+        _rootUpdateMenuItem.IsVisible = updateStatus.ShowActionInRootMenu;
+
+        _moreUpdateMenuItem.Header = updateStatus.ActionHeader;
+        _moreUpdateMenuItem.IsEnabled = updateStatus.IsActionEnabled;
+        _moreUpdateMenuItem.IsVisible = !updateStatus.ShowActionInRootMenu;
+
         _updateTooltipNotice = updateStatus.TooltipNotice;
         UpdateToolTipText();
+    }
+
+    private void OpenDiagnosticsLog()
+    {
+        if (string.IsNullOrWhiteSpace(_logFilePath) || !File.Exists(_logFilePath))
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = _logFilePath,
+                UseShellExecute = true,
+            });
+        }
+        catch
+        {
+        }
     }
 
     private void UpdateToolTipText()
@@ -119,10 +190,9 @@ public sealed partial class TrayPresenter
 
     private void SyncDeviceSections(IReadOnlyList<DeviceBatteryDisplay> sections)
     {
-        if (_deviceMenuItems.Count != sections.Count)
+        if (!HasSameSectionShape(sections))
         {
-            var dynamicItemCount = _deviceMenuItems.Count * 3;
-            for (var i = dynamicItemCount - 1; i >= 0; i--)
+            for (var i = _dynamicItemCount - 1; i >= 0; i--)
             {
                 _menu.Items.RemoveAt(i);
             }
@@ -133,24 +203,50 @@ public sealed partial class TrayPresenter
             foreach (var section in sections)
             {
                 var deviceItem = CreateReadOnlyItem(section.DeviceHeader);
-                var batteryItem = CreateReadOnlyItem(section.BatteryStatusHeader);
-                var separator = new NativeMenuItemSeparator();
-
                 _menu.Items.Insert(insertIndex++, deviceItem);
-                _menu.Items.Insert(insertIndex++, batteryItem);
-                _menu.Items.Insert(insertIndex++, separator);
 
+                NativeMenuItem? batteryItem = null;
+                if (!string.IsNullOrWhiteSpace(section.BatteryStatusHeader))
+                {
+                    batteryItem = CreateReadOnlyItem(section.BatteryStatusHeader);
+                    _menu.Items.Insert(insertIndex++, batteryItem);
+                }
+
+                _menu.Items.Insert(insertIndex++, new NativeMenuItemSeparator());
                 _deviceMenuItems.Add(new DeviceMenuItems(deviceItem, batteryItem));
             }
 
+            _dynamicItemCount = insertIndex;
             return;
         }
 
         for (var i = 0; i < sections.Count; i++)
         {
             _deviceMenuItems[i].DeviceItem.Header = sections[i].DeviceHeader;
-            _deviceMenuItems[i].BatteryStatusItem.Header = sections[i].BatteryStatusHeader;
+            if (_deviceMenuItems[i].BatteryStatusItem is { } batteryItem)
+            {
+                batteryItem.Header = sections[i].BatteryStatusHeader!;
+            }
         }
+    }
+
+    private bool HasSameSectionShape(IReadOnlyList<DeviceBatteryDisplay> sections)
+    {
+        if (_deviceMenuItems.Count != sections.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < sections.Count; i++)
+        {
+            var hasBatteryLine = !string.IsNullOrWhiteSpace(sections[i].BatteryStatusHeader);
+            if ((_deviceMenuItems[i].BatteryStatusItem is not null) != hasBatteryLine)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void OpenWindowsTrayMenu()
@@ -215,5 +311,5 @@ public sealed partial class TrayPresenter
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
-    private sealed record DeviceMenuItems(NativeMenuItem DeviceItem, NativeMenuItem BatteryStatusItem);
+    private sealed record DeviceMenuItems(NativeMenuItem DeviceItem, NativeMenuItem? BatteryStatusItem);
 }

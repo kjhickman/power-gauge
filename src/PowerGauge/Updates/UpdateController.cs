@@ -9,7 +9,8 @@ public sealed record TrayUpdateStatus(
     string VersionHeader,
     string ActionHeader,
     bool IsActionEnabled,
-    string? TooltipNotice = null);
+    string? TooltipNotice = null,
+    bool ShowActionInRootMenu = false);
 
 public sealed record UpdatePromptInfo(
     string CurrentVersion,
@@ -264,10 +265,11 @@ public sealed class UpdateController
                 "Check for updates",
                 IsActionEnabled: true),
 
-            CheckingForUpdatesState => new TrayUpdateStatus(
+            CheckingForUpdatesState(var previous) => new TrayUpdateStatus(
                 $"Version: {displayVersion}",
                 "Checking for updates...",
-                IsActionEnabled: false),
+                IsActionEnabled: false,
+                ShowActionInRootMenu: previous is not null),
 
             UpdateAvailableState(var release) => new TrayUpdateStatus(
                 $"Version: {displayVersion} ({release.Version.DisplayTag} available)",
@@ -275,30 +277,35 @@ public sealed class UpdateController
                     ? $"Install update ({release.Version.DisplayTag})"
                     : $"Download update ({release.Version.DisplayTag})",
                 IsActionEnabled: true,
-                $"Update available: {release.Version.DisplayTag}"),
+                $"Update available: {release.Version.DisplayTag}",
+                ShowActionInRootMenu: true),
 
             BrowserOpenFailedState(var release) => new TrayUpdateStatus(
                 $"Version: {displayVersion} (failed to open browser)",
                 $"Download update ({release.Version.DisplayTag})",
                 IsActionEnabled: true,
-                $"Update available: {release.Version.DisplayTag}"),
+                $"Update available: {release.Version.DisplayTag}",
+                ShowActionInRootMenu: true),
 
             DownloadingUpdateState(var release) => new TrayUpdateStatus(
                 $"Version: {displayVersion} ({release.Version.DisplayTag} available)",
                 $"Downloading update ({release.Version.DisplayTag})...",
                 IsActionEnabled: false,
-                $"Downloading {release.Version.DisplayTag}..."),
+                $"Downloading {release.Version.DisplayTag}...",
+                ShowActionInRootMenu: true),
 
             InstallingUpdateState(var release) => new TrayUpdateStatus(
                 $"Version: {displayVersion} (installing {release.Version.DisplayTag}...)",
                 $"Installing update ({release.Version.DisplayTag})...",
-                IsActionEnabled: false),
+                IsActionEnabled: false,
+                ShowActionInRootMenu: true),
 
             UpdateFailedState(var release) => new TrayUpdateStatus(
                 $"Version: {displayVersion} (update failed)",
                 $"Retry update ({release.Version.DisplayTag})",
                 IsActionEnabled: true,
-                $"Update available: {release.Version.DisplayTag}"),
+                $"Update available: {release.Version.DisplayTag}",
+                ShowActionInRootMenu: true),
 
             null => new TrayUpdateStatus(
                 $"Version: {displayVersion}",

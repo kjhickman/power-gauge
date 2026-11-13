@@ -33,6 +33,7 @@ public sealed class UpdateStateMachineTests
 
         Assert.True(controller.State is IdleUpdateState);
         Assert.Equal("Check for updates", controller.CurrentStatus.ActionHeader);
+        Assert.False(controller.CurrentStatus.ShowActionInRootMenu);
 
         await controller.CheckForUpdatesAsync(isManualCheck: true);
 
@@ -40,6 +41,7 @@ public sealed class UpdateStateMachineTests
         Assert.Equal("Version: 0.2.1 (v0.3.0 available)", controller.CurrentStatus.VersionHeader);
         Assert.Equal("Install update (v0.3.0)", controller.CurrentStatus.ActionHeader);
         Assert.True(controller.CurrentStatus.IsActionEnabled);
+        Assert.True(controller.CurrentStatus.ShowActionInRootMenu);
     }
 
     [Fact]
