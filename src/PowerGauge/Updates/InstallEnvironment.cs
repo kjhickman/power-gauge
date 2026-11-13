@@ -17,10 +17,7 @@ internal sealed record InstallEnvironmentInfo(
     InstallKind Kind,
     string AppDirectory,
     string? ExecutablePath,
-    string? MacOsAppBundlePath = null)
-{
-    public bool SupportsSelfUpdate => Kind is InstallKind.WindowsInstaller or InstallKind.WindowsPortable or InstallKind.MacOsAppBundle;
-}
+    string? MacOsAppBundlePath = null);
 
 internal static class InstallEnvironment
 {

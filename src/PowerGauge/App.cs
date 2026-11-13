@@ -19,10 +19,15 @@ namespace PowerGauge;
 public sealed class App : Avalonia.Application
 {
     private readonly PowerPollingController _pollingController = new(CreatePowerReader(), CreateDeviceChangeMonitor());
-    private readonly UpdateController _updateController = new();
+    private readonly UpdateController _updateController;
     private TrayPresenter? _trayPresenter;
     private DispatcherTimer? _refreshTimer;
     private DispatcherTimer? _updateTimer;
+
+    public App()
+    {
+        _updateController = new UpdateController(PromptForUpdateAsync);
+    }
 
     public override void Initialize()
     {
@@ -79,17 +84,18 @@ public sealed class App : Avalonia.Application
         _updateTimer.Tick += async (_, _) => await _updateController.CheckForUpdatesAsync(isManualCheck: false);
         _updateTimer.Start();
 
-        _ = CheckForUpdatesAfterStartupAsync();
+        _ = _updateController.CheckForUpdatesAsync(isManualCheck: false);
     }
 
-    private async Task CheckForUpdatesAfterStartupAsync()
+    private Task<bool> PromptForUpdateAsync(UpdatePromptInfo prompt)
     {
-        await Task.Delay(TimeSpan.FromSeconds(10));
-        await _updateController.CheckForUpdatesAsync(isManualCheck: false);
+        return Dispatcher.UIThread.InvokeAsync(() =>
+            UpdatePromptWindow.ShowPromptAsync(prompt, _trayPresenter?.TrayIcon.Icon));
     }
 
     private async void HandleUpdateMenuAction()
     {
+        UpdatePromptWindow.DismissActive();
         await _updateController.HandleMenuActionAsync(Quit);
     }
 

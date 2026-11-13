@@ -103,6 +103,114 @@ public sealed class UpdateStateMachineTests
         Assert.True(controller.CurrentStatus.IsActionEnabled);
     }
 
+    [Fact]
+    public async Task HandleMenuAction_WhenManualCheckFindsUpdate_PromptsAndInstallsWhenAccepted()
+    {
+        UpdatePromptInfo? observedPrompt = null;
+        var installerLaunched = false;
+        var shutdownRequested = false;
+
+        var controller = CreateController(
+            "0.3.0",
+            prompt =>
+            {
+                observedPrompt = prompt;
+                return Task.FromResult(true);
+            },
+            (_, _, _) => installerLaunched = true);
+
+        await controller.HandleMenuActionAsync(() => shutdownRequested = true);
+
+        Assert.Equal(new UpdatePromptInfo("v0.3.0", "v0.3.1", CanSelfUpdate: true), observedPrompt);
+        Assert.True(installerLaunched);
+        Assert.True(shutdownRequested);
+        Assert.True(controller.State is InstallingUpdateState);
+    }
+
+    [Fact]
+    public async Task HandleMenuAction_WhenManualCheckDeclined_StaysAvailableAndInstallsDirectlyNextClick()
+    {
+        var promptCount = 0;
+        var installerLaunched = false;
+        var shutdownRequested = false;
+
+        var controller = CreateController(
+            "0.3.0",
+            _ =>
+            {
+                promptCount++;
+                return Task.FromResult(false);
+            },
+            (_, _, _) => installerLaunched = true);
+
+        await controller.HandleMenuActionAsync(() => shutdownRequested = true);
+
+        Assert.Equal(1, promptCount);
+        Assert.False(installerLaunched);
+        Assert.False(shutdownRequested);
+        Assert.True(controller.State is UpdateAvailableState);
+        Assert.Equal("Install update (v0.3.1)", controller.CurrentStatus.ActionHeader);
+
+        await controller.HandleMenuActionAsync(() => shutdownRequested = true);
+
+        Assert.Equal(1, promptCount);
+        Assert.True(installerLaunched);
+        Assert.True(shutdownRequested);
+    }
+
+    [Theory]
+    [InlineData("0.3.1", true, "Version: 0.3.1 (up to date)", "Check for updates")]
+    [InlineData("0.3.0", false, "Version: 0.3.0 (v0.3.1 available)", "Install update (v0.3.1)")]
+    public async Task UpdateChecks_DoNotPrompt_WhenUpToDateOrAutomatic(
+        string currentVersion,
+        bool isMenuAction,
+        string expectedVersionHeader,
+        string expectedActionHeader)
+    {
+        var prompted = false;
+        var controller = CreateController(currentVersion, _ =>
+        {
+            prompted = true;
+            return Task.FromResult(true);
+        });
+
+        await (isMenuAction
+            ? controller.HandleMenuActionAsync(() => { })
+            : controller.CheckForUpdatesAsync(isManualCheck: false));
+
+        Assert.False(prompted);
+        Assert.Equal(expectedVersionHeader, controller.CurrentStatus.VersionHeader);
+        Assert.Equal(expectedActionHeader, controller.CurrentStatus.ActionHeader);
+    }
+
+    private static UpdateController CreateController(
+        string currentVersion,
+        Func<UpdatePromptInfo, Task<bool>> promptForUpdateAsync,
+        Action<InstallEnvironmentInfo, string, string>? launchInstaller = null)
+    {
+        var feedClient = new FakeReleaseFeedClient { ReleaseToReturn = CreateWindowsRelease("v0.3.1") };
+        var env = new InstallEnvironmentInfo(InstallKind.WindowsInstaller, @"C:\App", @"C:\App\PowerGauge.exe");
+        return new UpdateController(feedClient, env, () => currentVersion, _ => { }, promptForUpdateAsync, launchInstaller);
+    }
+
+    private static GitHubReleaseDto CreateWindowsRelease(string tagName)
+    {
+        var version = tagName.TrimStart('v');
+        return new GitHubReleaseDto
+        {
+            TagName = tagName,
+            HtmlUrl = $"https://github.com/kjhickman/power-gauge/releases/tag/{tagName}",
+            Assets =
+            [
+                new GitHubReleaseAssetDto
+                {
+                    Name = $"PowerGauge-windows-x64-setup-{version}.exe",
+                    BrowserDownloadUrl = "https://example.invalid/setup.exe",
+                }
+            ],
+        };
+    }
+
     private sealed class FakeReleaseFeedClient : IReleaseFeedClient
     {
         public GitHubReleaseDto? ReleaseToReturn { get; set; }

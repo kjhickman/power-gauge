@@ -16,7 +16,7 @@ internal static class TrayMenuTheme
     private const string MenuBackgroundKey = "TrayMenuBackground";
     private const string MenuBorderKey = "TrayMenuBorder";
     private const string MenuForegroundKey = "TrayMenuForeground";
-    private const string ItemDisabledForegroundKey = "TrayItemDisabledForeground";
+    internal const string ItemDisabledForegroundKey = "TrayItemDisabledForeground";
     private const string ItemHoverBrushKey = "TrayItemHoverBackground";
     private const string ItemPressedBrushKey = "TrayItemPressedBackground";
     private const string SeparatorBrushKey = "TrayMenuSeparator";
@@ -48,6 +48,7 @@ internal static class TrayMenuTheme
         };
 
         resources[typeof(Window)] = CreateWindowTheme();
+        resources[typeof(Button)] = CreateButtonTheme();
         resources[typeof(MenuFlyoutPresenter)] = CreateMenuFlyoutPresenterTheme();
         resources[typeof(MenuItem)] = CreateMenuItemTheme();
         resources[typeof(Separator)] = CreateSeparatorTheme();
@@ -69,9 +70,10 @@ internal static class TrayMenuTheme
                     var presenter = new ContentPresenter
                     {
                         Name = "PART_ContentPresenter",
+                        [!ContentPresenter.BackgroundProperty] = window[!TemplatedControl.BackgroundProperty],
                         [!ContentPresenter.ContentProperty] = window[!ContentControl.ContentProperty],
                         [!ContentPresenter.ContentTemplateProperty] = window[!ContentControl.ContentTemplateProperty],
-                        [!Layoutable.MarginProperty] = window[!TemplatedControl.PaddingProperty],
+                        [!ContentPresenter.PaddingProperty] = window[!TemplatedControl.PaddingProperty],
                         [!ContentPresenter.HorizontalContentAlignmentProperty] = window[!ContentControl.HorizontalContentAlignmentProperty],
                         [!ContentPresenter.VerticalContentAlignmentProperty] = window[!ContentControl.VerticalContentAlignmentProperty],
                     }.RegisterInNameScope(scope);
@@ -82,6 +84,71 @@ internal static class TrayMenuTheme
                         Child = presenter,
                     }.RegisterInNameScope(scope);
                 })),
+            },
+        };
+    }
+
+    private static ControlTheme CreateButtonTheme()
+    {
+        return new ControlTheme(typeof(Button))
+        {
+            Setters =
+            {
+                new Setter(TemplatedControl.BackgroundProperty, Brushes.Transparent),
+                new Setter(TemplatedControl.BorderBrushProperty, new DynamicResourceExtension(MenuBorderKey)),
+                new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
+                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(6)),
+                new Setter(TemplatedControl.ForegroundProperty, new DynamicResourceExtension(MenuForegroundKey)),
+                new Setter(TemplatedControl.FontSizeProperty, 13.0),
+                new Setter(TemplatedControl.PaddingProperty, new Thickness(14, 7)),
+                new Setter(ContentControl.HorizontalContentAlignmentProperty, HorizontalAlignment.Center),
+                new Setter(ContentControl.VerticalContentAlignmentProperty, VerticalAlignment.Center),
+                new Setter(TemplatedControl.TemplateProperty, new FuncControlTemplate<Button>((button, scope) =>
+                    new ContentPresenter
+                    {
+                        Name = "PART_ContentPresenter",
+                        [!ContentPresenter.BackgroundProperty] = button[!TemplatedControl.BackgroundProperty],
+                        [!ContentPresenter.BorderBrushProperty] = button[!TemplatedControl.BorderBrushProperty],
+                        [!ContentPresenter.BorderThicknessProperty] = button[!TemplatedControl.BorderThicknessProperty],
+                        [!ContentPresenter.CornerRadiusProperty] = button[!TemplatedControl.CornerRadiusProperty],
+                        [!ContentPresenter.PaddingProperty] = button[!TemplatedControl.PaddingProperty],
+                        [!ContentPresenter.ContentProperty] = button[!ContentControl.ContentProperty],
+                        [!ContentPresenter.ContentTemplateProperty] = button[!ContentControl.ContentTemplateProperty],
+                        [!ContentPresenter.HorizontalContentAlignmentProperty] = button[!ContentControl.HorizontalContentAlignmentProperty],
+                        [!ContentPresenter.VerticalContentAlignmentProperty] = button[!ContentControl.VerticalContentAlignmentProperty],
+                    }.RegisterInNameScope(scope))),
+            },
+            Children =
+            {
+                new Style(x => x.Nesting().Class(":pointerover"))
+                {
+                    Setters = { new Setter(TemplatedControl.BackgroundProperty, new DynamicResourceExtension(ItemHoverBrushKey)) },
+                },
+                new Style(x => x.Nesting().Class(":pressed"))
+                {
+                    Setters = { new Setter(TemplatedControl.BackgroundProperty, new DynamicResourceExtension(ItemPressedBrushKey)) },
+                },
+                new Style(x => x.Nesting().Class("accent"))
+                {
+                    Setters =
+                    {
+                        new Setter(TemplatedControl.BackgroundProperty, new SolidColorBrush(Color.Parse("#2563EB"))),
+                        new Setter(TemplatedControl.BorderBrushProperty, new SolidColorBrush(Color.Parse("#1D4ED8"))),
+                        new Setter(TemplatedControl.ForegroundProperty, Brushes.White),
+                        new Setter(TemplatedControl.FontWeightProperty, FontWeight.SemiBold),
+                    },
+                    Children =
+                    {
+                        new Style(x => x.Nesting().Class(":pointerover"))
+                        {
+                            Setters = { new Setter(TemplatedControl.BackgroundProperty, new SolidColorBrush(Color.Parse("#3B82F6"))) },
+                        },
+                        new Style(x => x.Nesting().Class(":pressed"))
+                        {
+                            Setters = { new Setter(TemplatedControl.BackgroundProperty, new SolidColorBrush(Color.Parse("#1E40AF"))) },
+                        },
+                    },
+                },
             },
         };
     }

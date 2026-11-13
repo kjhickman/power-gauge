@@ -1,10 +1,12 @@
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Styling;
 using Avalonia.VisualTree;
 using System.Linq;
 using PowerGauge.Tray;
+using PowerGauge.Updates;
 using Xunit;
 
 namespace PowerGauge.Tests;
@@ -82,5 +84,52 @@ public sealed class TrayMenuThemeTests
         Assert.True(renderer.UpdateTheme(TrayIconThemePalette.FromPlatformColors(lightColors)));
         Assert.NotEqual(darkBorder, renderer.GetBorderColor());
         Assert.Equal(0, renderer.CachedBatteryIconCount);
+    }
+
+    [Fact]
+    public void UpdatePromptContent_AppliesButtonThemes_AndDispatchesDecisions()
+    {
+        var resources = TrayMenuTheme.CreateResources();
+        var buttonTheme = Assert.IsType<ControlTheme>(resources[typeof(Button)]);
+
+        bool? decision = null;
+        var content = UpdatePromptWindow.BuildContent(
+            new UpdatePromptInfo("v0.3.0", "v0.3.1", CanSelfUpdate: true),
+            accepted => decision = accepted);
+
+        var host = new ThemeVariantScope
+        {
+            RequestedThemeVariant = ThemeVariant.Dark,
+            Resources = resources,
+            Child = content,
+        };
+
+        var buttons = content.GetVisualDescendants().OfType<Button>().ToArray();
+        Assert.Equal(2, buttons.Length);
+        var (laterButton, confirmButton) = (buttons[0], buttons[1]);
+        laterButton.Theme = buttonTheme;
+        confirmButton.Theme = buttonTheme;
+
+        laterButton.ApplyStyling();
+        confirmButton.ApplyStyling();
+        laterButton.ApplyTemplate();
+        confirmButton.ApplyTemplate();
+
+        Assert.Equal("Later", laterButton.Content);
+        Assert.Equal("Install update v0.3.1", confirmButton.Content);
+
+        var baseLaterBg = Assert.IsAssignableFrom<ISolidColorBrush>(laterButton.Presenter!.Background).Color;
+        var baseConfirmBg = Assert.IsAssignableFrom<ISolidColorBrush>(confirmButton.Presenter!.Background).Color;
+        Assert.NotEqual(baseLaterBg, baseConfirmBg);
+
+        ((IPseudoClasses)confirmButton.Classes).Set(":pointerover", true);
+        var hoverConfirmBg = Assert.IsAssignableFrom<ISolidColorBrush>(confirmButton.Presenter.Background).Color;
+        Assert.NotEqual(baseConfirmBg, hoverConfirmBg);
+
+        laterButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(false, decision);
+
+        confirmButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(true, decision);
     }
 }

@@ -11,6 +11,11 @@ public sealed record TrayUpdateStatus(
     bool IsActionEnabled,
     string? TooltipNotice = null);
 
+public sealed record UpdatePromptInfo(
+    string CurrentVersion,
+    string AvailableVersion,
+    bool CanSelfUpdate);
+
 internal sealed record AvailableRelease(
     AppVersion Version,
     string HtmlUrl,
@@ -67,14 +72,17 @@ public sealed class UpdateController
     private readonly InstallEnvironmentInfo _installEnvironment;
     private readonly Func<string> _getCurrentVersionString;
     private readonly Action<string> _openBrowserUrl;
+    private readonly Func<UpdatePromptInfo, Task<bool>>? _promptForUpdateAsync;
+    private readonly Action<InstallEnvironmentInfo, string, string> _launchInstaller;
     private UpdateState _state = new IdleUpdateState();
 
-    public UpdateController()
+    public UpdateController(Func<UpdatePromptInfo, Task<bool>>? promptForUpdateAsync = null)
         : this(
             new GitHubReleaseClient(),
             InstallEnvironment.Detect(),
             () => AppIdentity.DisplayVersion,
-            SelfUpdateApplier.OpenBrowserUrl)
+            SelfUpdateApplier.OpenBrowserUrl,
+            promptForUpdateAsync)
     {
     }
 
@@ -82,12 +90,16 @@ public sealed class UpdateController
         IReleaseFeedClient releaseClient,
         InstallEnvironmentInfo installEnvironment,
         Func<string> getCurrentVersionString,
-        Action<string> openBrowserUrl)
+        Action<string> openBrowserUrl,
+        Func<UpdatePromptInfo, Task<bool>>? promptForUpdateAsync = null,
+        Action<InstallEnvironmentInfo, string, string>? launchInstaller = null)
     {
         _releaseClient = releaseClient;
         _installEnvironment = installEnvironment;
         _getCurrentVersionString = getCurrentVersionString;
         _openBrowserUrl = openBrowserUrl;
+        _promptForUpdateAsync = promptForUpdateAsync;
+        _launchInstaller = launchInstaller ?? SelfUpdateApplier.LaunchInstallerAndScheduleRestart;
         CurrentStatus = FormatStatus(_state);
     }
 
@@ -96,6 +108,27 @@ public sealed class UpdateController
     public TrayUpdateStatus CurrentStatus { get; private set; }
 
     internal UpdateState State => _state;
+
+    public async Task HandleMenuActionAsync(Action requestShutdown)
+    {
+        if (_state.IsBusy)
+        {
+            return;
+        }
+
+        if (_state.AvailableRelease is not { } targetRelease)
+        {
+            await CheckForUpdatesAsync(isManualCheck: true);
+            if (_state.AvailableRelease is { } foundRelease)
+            {
+                await PromptAndApplyAsync(foundRelease, requestShutdown);
+            }
+
+            return;
+        }
+
+        await ApplyUpdateAsync(targetRelease, requestShutdown);
+    }
 
     public async Task CheckForUpdatesAsync(bool isManualCheck)
     {
@@ -148,23 +181,28 @@ public sealed class UpdateController
         }
     }
 
-    public async Task HandleMenuActionAsync(Action requestShutdown)
+    private async Task PromptAndApplyAsync(AvailableRelease release, Action requestShutdown)
     {
-        if (_state.IsBusy)
+        if (_promptForUpdateAsync is null)
         {
             return;
         }
 
-        if (_state.AvailableRelease is not { } targetRelease)
+        var rawVersion = _getCurrentVersionString();
+        var currentTag = AppVersion.TryParse(rawVersion, out var v) && v is not null ? v.DisplayTag : rawVersion;
+        var prompt = new UpdatePromptInfo(currentTag, release.Version.DisplayTag, release.Asset is not null);
+
+        if (!await _promptForUpdateAsync(prompt) || _state.IsBusy)
         {
-            await CheckForUpdatesAsync(isManualCheck: true);
             return;
         }
 
-        if (!_installEnvironment.SupportsSelfUpdate
-            || targetRelease.Asset is null
-            || string.IsNullOrWhiteSpace(targetRelease.Asset.BrowserDownloadUrl)
-            || string.IsNullOrWhiteSpace(targetRelease.Asset.Name))
+        await ApplyUpdateAsync(release, requestShutdown);
+    }
+
+    private async Task ApplyUpdateAsync(AvailableRelease targetRelease, Action requestShutdown)
+    {
+        if (targetRelease.Asset is not { } asset)
         {
             try
             {
@@ -183,16 +221,16 @@ public sealed class UpdateController
         try
         {
             var stagingDir = SelfUpdateApplier.GetStagingDirectory(targetRelease.Version.Normalized);
-            var assetPath = Path.Combine(stagingDir, targetRelease.Asset.Name);
+            var assetPath = Path.Combine(stagingDir, asset.Name!);
 
             await _releaseClient.DownloadAssetAsync(
-                targetRelease.Asset.BrowserDownloadUrl,
+                asset.BrowserDownloadUrl!,
                 assetPath,
-                targetRelease.Asset.Digest);
+                asset.Digest);
 
             TransitionTo(new InstallingUpdateState(targetRelease));
 
-            SelfUpdateApplier.LaunchInstallerAndScheduleRestart(_installEnvironment, assetPath, stagingDir);
+            _launchInstaller(_installEnvironment, assetPath, stagingDir);
             requestShutdown();
         }
         catch
@@ -233,7 +271,7 @@ public sealed class UpdateController
 
             UpdateAvailableState(var release) => new TrayUpdateStatus(
                 $"Version: {displayVersion} ({release.Version.DisplayTag} available)",
-                _installEnvironment.SupportsSelfUpdate && release.Asset is not null
+                release.Asset is not null
                     ? $"Install update ({release.Version.DisplayTag})"
                     : $"Download update ({release.Version.DisplayTag})",
                 IsActionEnabled: true,
