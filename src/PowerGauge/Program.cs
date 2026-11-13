@@ -21,6 +21,10 @@ sealed class Program
                 RenderingMode = [Win32RenderingMode.Software],
                 CompositionMode = [Win32CompositionMode.RedirectionSurface],
             })
+            .With(new MacOSPlatformOptions
+            {
+                ShowInDock = false,
+            })
             .With(new AvaloniaNativePlatformOptions
             {
                 RenderingMode = [AvaloniaNativeRenderingMode.Software],
