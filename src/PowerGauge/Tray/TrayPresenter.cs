@@ -114,10 +114,6 @@ public sealed partial class TrayPresenter
 
     public TrayIcon TrayIcon => _trayIcon;
 
-    internal NativeMenu RootMenu => _menu;
-
-    internal NativeMenu MoreMenu => _moreMenu;
-
     public void Apply(BatteryProbeResult result)
     {
         SyncDeviceSections(result.DeviceSections);

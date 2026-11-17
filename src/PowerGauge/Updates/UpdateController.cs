@@ -108,8 +108,6 @@ public sealed class UpdateController
 
     public TrayUpdateStatus CurrentStatus { get; private set; }
 
-    internal UpdateState State => _state;
-
     public async Task HandleMenuActionAsync(Action requestShutdown)
     {
         if (_state.IsBusy)

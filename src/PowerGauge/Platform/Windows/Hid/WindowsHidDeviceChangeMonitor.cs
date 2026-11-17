@@ -52,8 +52,6 @@ public sealed partial class WindowsHidDeviceChangeMonitor : IDeviceChangeMonitor
 
     public event Action? DevicesChanged;
 
-    internal bool IsRegistered => _notificationHandle != IntPtr.Zero;
-
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)

@@ -5,35 +5,15 @@ using PowerGauge.Platform.Abstractions;
 
 namespace PowerGauge.Tests.Fakes;
 
-internal sealed class FakeHidDeviceEnumerator : IHidDeviceEnumerator
+internal sealed class FakeHidDeviceEnumerator(IReadOnlyList<HidDeviceInfo> devices) : IHidDeviceEnumerator
 {
-    private readonly Func<IReadOnlyList<HidDeviceInfo>> _enumerateFunc;
-
-    public FakeHidDeviceEnumerator(IReadOnlyList<HidDeviceInfo> devices)
-        : this(() => devices)
-    {
-    }
-
-    public FakeHidDeviceEnumerator(Func<IReadOnlyList<HidDeviceInfo>> enumerateFunc)
-    {
-        _enumerateFunc = enumerateFunc;
-    }
-
-    public int EnumerateCallCount { get; private set; }
-
-    public IReadOnlyList<HidDeviceInfo> Enumerate()
-    {
-        EnumerateCallCount++;
-        return _enumerateFunc();
-    }
+    public IReadOnlyList<HidDeviceInfo> Enumerate() => devices;
 }
 
 internal sealed class FakeHidTransport : IHidTransport
 {
     private readonly Dictionary<string, Func<HidDeviceInfo, HidOpenResult>> _handlers =
         new(StringComparer.Ordinal);
-
-    public int OpenCallCount { get; private set; }
 
     public void RegisterSession(string devicePath, IHidDeviceSession session)
     {
@@ -42,8 +22,6 @@ internal sealed class FakeHidTransport : IHidTransport
 
     public HidOpenResult Open(HidDeviceInfo device)
     {
-        OpenCallCount++;
-
         if (_handlers.TryGetValue(device.DevicePath, out var handler))
         {
             return handler(device);
@@ -68,8 +46,6 @@ internal sealed class FakeHidDeviceSession : IHidDeviceSession
 
     public bool IsDisposed { get; private set; }
 
-    public int ExchangeCallCount { get; private set; }
-
     public bool TryExchangeFeatureReport(
         ReadOnlySpan<byte> request,
         Span<byte> response,
@@ -77,7 +53,6 @@ internal sealed class FakeHidDeviceSession : IHidDeviceSession
         out PowerFailureKind failureKind,
         out string error)
     {
-        ExchangeCallCount++;
         var result = _exchangeHandler(request, responseClassifier);
         failureKind = result.FailureKind;
         error = result.Error;

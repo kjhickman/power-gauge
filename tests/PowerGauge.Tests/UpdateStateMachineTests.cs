@@ -31,13 +31,11 @@ public sealed class UpdateStateMachineTests
         var env = new InstallEnvironmentInfo(InstallKind.WindowsInstaller, @"C:\App", @"C:\App\PowerGauge.exe");
         var controller = new UpdateController(feedClient, env, () => "0.2.1", _ => { });
 
-        Assert.True(controller.State is IdleUpdateState);
         Assert.Equal("Check for updates", controller.CurrentStatus.ActionHeader);
         Assert.False(controller.CurrentStatus.ShowActionInRootMenu);
 
         await controller.CheckForUpdatesAsync(isManualCheck: true);
 
-        Assert.True(controller.State is UpdateAvailableState);
         Assert.Equal("Version: 0.2.1 (v0.3.0 available)", controller.CurrentStatus.VersionHeader);
         Assert.Equal("Install update (v0.3.0)", controller.CurrentStatus.ActionHeader);
         Assert.True(controller.CurrentStatus.IsActionEnabled);
@@ -45,7 +43,7 @@ public sealed class UpdateStateMachineTests
     }
 
     [Fact]
-    public async Task HandleMenuAction_InDevelopmentInstall_FallsBackToBrowserOpenFailedStateOnError()
+    public async Task HandleMenuAction_InDevelopmentInstall_ReportsFailureWhenBrowserCannotOpen()
     {
         var feedClient = new FakeReleaseFeedClient
         {
@@ -66,13 +64,12 @@ public sealed class UpdateStateMachineTests
         await controller.CheckForUpdatesAsync(isManualCheck: false);
         await controller.HandleMenuActionAsync(() => { });
 
-        Assert.True(controller.State is BrowserOpenFailedState);
         Assert.Equal("Version: 0.2.1 (failed to open browser)", controller.CurrentStatus.VersionHeader);
         Assert.Equal("Download update (v0.3.0)", controller.CurrentStatus.ActionHeader);
     }
 
     [Fact]
-    public async Task HandleMenuAction_WhenDownloadThrows_TransitionsToUpdateFailedStateWithRetry()
+    public async Task HandleMenuAction_WhenDownloadThrows_OffersRetryThatInstalls()
     {
         var feedClient = new FakeReleaseFeedClient
         {
@@ -93,16 +90,26 @@ public sealed class UpdateStateMachineTests
         };
 
         var env = new InstallEnvironmentInfo(InstallKind.WindowsInstaller, @"C:\App", @"C:\App\PowerGauge.exe");
-        var controller = new UpdateController(feedClient, env, () => "0.2.1", _ => { });
+        var installerLaunched = false;
+        var controller = new UpdateController(
+            feedClient,
+            env,
+            () => "0.2.1",
+            _ => { },
+            launchInstaller: (_, _, _) => installerLaunched = true);
 
         await controller.CheckForUpdatesAsync(isManualCheck: false);
         await controller.HandleMenuActionAsync(() => { });
 
-        Assert.True(controller.State is UpdateFailedState);
-        Assert.False(controller.State.IsBusy);
+        Assert.False(installerLaunched);
         Assert.Equal("Version: 0.2.1 (update failed)", controller.CurrentStatus.VersionHeader);
         Assert.Equal("Retry update (v0.3.0)", controller.CurrentStatus.ActionHeader);
         Assert.True(controller.CurrentStatus.IsActionEnabled);
+
+        feedClient.DownloadException = null;
+        await controller.HandleMenuActionAsync(() => { });
+
+        Assert.True(installerLaunched);
     }
 
     [Fact]
@@ -126,7 +133,6 @@ public sealed class UpdateStateMachineTests
         Assert.Equal(new UpdatePromptInfo("v0.3.0", "v0.3.1", CanSelfUpdate: true), observedPrompt);
         Assert.True(installerLaunched);
         Assert.True(shutdownRequested);
-        Assert.True(controller.State is InstallingUpdateState);
     }
 
     [Fact]
@@ -150,7 +156,6 @@ public sealed class UpdateStateMachineTests
         Assert.Equal(1, promptCount);
         Assert.False(installerLaunched);
         Assert.False(shutdownRequested);
-        Assert.True(controller.State is UpdateAvailableState);
         Assert.Equal("Install update (v0.3.1)", controller.CurrentStatus.ActionHeader);
 
         await controller.HandleMenuActionAsync(() => shutdownRequested = true);

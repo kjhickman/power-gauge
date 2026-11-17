@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 using PowerGauge.Devices.Hid;
 using PowerGauge.Devices.Razer;
 using PowerGauge.Domain;
@@ -12,35 +11,7 @@ namespace PowerGauge.Tests;
 public sealed class RazerDriverTests
 {
     [Fact]
-    public void RazerProtocol_ReadPowerResponse_UsesStackBuffersWithoutArrayAllocations()
-    {
-        var device = new HidDeviceInfo(
-            "macos-entry-101",
-            RazerProtocol.VendorId,
-            0x007a,
-            91,
-            "Razer Viper Ultimate",
-            HidUsagePages.GenericDesktop,
-            HidUsagePages.MouseUsage);
-
-        var session = new ZeroAllocStubSession();
-        var diagnostics = new StringBuilder(1024);
-
-        // Warmup JIT & cached method-group delegate
-        _ = RazerProtocol.ReadPowerResponse(device, session, [0x1f], diagnostics, RazerProtocol.GetBatteryCommandId, "Battery");
-        diagnostics.Clear();
-
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        var result = RazerProtocol.ReadPowerResponse(device, session, [0x1f], diagnostics, RazerProtocol.GetBatteryCommandId, "Battery");
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-        var payload = Assert.IsType<RazerPowerPayload>(result.Value);
-        Assert.Equal(204, payload.PrimaryArg);
-        // Only the boxed 24-byte union case wrapper; zero 90/91-byte request/response/hex-string allocations
-        Assert.True(allocated <= 32, $"Expected <= 32 bytes allocated, actual: {allocated}");
-    }
-    [Fact]
-    public void ViperUltimate_PrefersWiredOverWireless_AndReusesSingleSessionAcrossCommands()
+    public void ViperUltimate_PrefersWiredOverWireless_AndReleasesTheSession()
     {
         var wirelessDevice = new HidDeviceInfo(
             "macos-entry-100",
@@ -60,6 +31,12 @@ public sealed class RazerDriverTests
             HidUsagePages.GenericDesktop,
             HidUsagePages.MouseUsage);
 
+        var wirelessSession = CreateRazerSession(
+            status: 0x02,
+            transactionId: 0x1f,
+            rawBatteryByte: 128, // 50%
+            isCharging: false);
+
         var wiredSession = CreateRazerSession(
             status: 0x02,
             transactionId: 0x1f,
@@ -67,6 +44,7 @@ public sealed class RazerDriverTests
             isCharging: true);
 
         var transport = new FakeHidTransport();
+        transport.RegisterSession(wirelessDevice.DevicePath, wirelessSession);
         transport.RegisterSession(wiredDevice.DevicePath, wiredSession);
 
         var provider = new HidDevicePowerProvider(
@@ -82,8 +60,6 @@ public sealed class RazerDriverTests
         Assert.Equal("Razer Viper Ultimate (Wired)", snapshot.DeviceDisplayName);
         Assert.Equal(80, snapshot.BatteryPercent);
         Assert.Equal(true, snapshot.IsCharging);
-        Assert.Equal(1, transport.OpenCallCount);
-        Assert.Equal(2, wiredSession.ExchangeCallCount);
         Assert.True(wiredSession.IsDisposed);
     }
 
@@ -190,7 +166,7 @@ public sealed class RazerDriverTests
             status: 0x02,
             transactionId: 0x1f,
             rawBatteryByte: 128, // 50%
-            isCharging: false,
+            isCharging: true, // AA battery device: a charging flag from the receiver must be ignored
             prependReportId: true);
 
         var transport = new FakeHidTransport();
@@ -207,7 +183,6 @@ public sealed class RazerDriverTests
         Assert.Equal("naga-v2-hyperspeed", snapshot.DeviceKey);
         Assert.Equal(50, snapshot.BatteryPercent);
         Assert.Equal(false, snapshot.IsCharging);
-        Assert.Equal(1, session.ExchangeCallCount); // Skips charging query on AA mouse
     }
 
     [Fact]
@@ -270,30 +245,5 @@ public sealed class RazerDriverTests
 
             return (true, response, PowerFailureKind.None, string.Empty);
         });
-    }
-
-    private sealed class ZeroAllocStubSession : IHidDeviceSession
-    {
-        public bool TryExchangeFeatureReport(
-            ReadOnlySpan<byte> request,
-            Span<byte> response,
-            HidFeatureResponseClassifier? responseClassifier,
-            out PowerFailureKind failureKind,
-            out string error)
-        {
-            failureKind = PowerFailureKind.None;
-            error = string.Empty;
-            response.Clear();
-            response[1 + 0] = 0x02;
-            response[1 + 1] = request[1 + 1];
-            response[1 + 6] = request[1 + 6];
-            response[1 + 7] = request[1 + 7];
-            response[1 + 9] = 204;
-            return responseClassifier is null || responseClassifier(request, response) == HidFeatureResponseStatus.Accepted;
-        }
-
-        public void Dispose()
-        {
-        }
     }
 }

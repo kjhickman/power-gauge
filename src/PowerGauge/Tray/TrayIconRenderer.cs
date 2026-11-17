@@ -30,10 +30,6 @@ public sealed class TrayIconRenderer
     private TrayIconThemePalette _palette = TrayIconThemePalette.Default;
     private WindowIcon? _placeholderIcon;
 
-    internal TrayIconThemePalette CurrentPalette => _palette;
-
-    internal int CachedBatteryIconCount => _batteryIcons.Count;
-
     public bool UpdateTheme(TrayIconThemePalette palette)
     {
         if (_palette == palette)

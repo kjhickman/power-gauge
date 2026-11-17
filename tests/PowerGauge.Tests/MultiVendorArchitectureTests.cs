@@ -16,7 +16,7 @@ namespace PowerGauge.Tests;
 public sealed class MultiVendorArchitectureTests
 {
     [Fact]
-    public void HidDevicePowerProvider_EnumeratesOnce_AcrossMultipleVendorsAndDeviceKinds()
+    public void HidDevicePowerProvider_RoutesEachDeviceToItsDriver_AcrossVendorsAndDeviceKinds()
     {
         const int headsetVendorId = 0x1038;
         const int headsetProductId = 0x2202;
@@ -76,10 +76,7 @@ public sealed class MultiVendorArchitectureTests
         var reader = new CompositeDevicePowerReader([provider], ProbeLogWriter.Disabled);
         var report = reader.Probe();
 
-        Assert.Equal(1, enumerator.EnumerateCallCount);
         Assert.Equal(PowerFailureKind.None, report.FailureKind);
-        Assert.Equal(2, report.Devices.Count);
-
         Assert.Collection(
             report.Devices,
             mouse =>

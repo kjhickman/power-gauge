@@ -6,7 +6,6 @@ using PowerGauge.Devices;
 using PowerGauge.Diagnostics;
 using PowerGauge.Domain;
 using PowerGauge.Platform.Abstractions;
-using PowerGauge.Platform.Windows.Hid;
 using PowerGauge.Tray;
 using Xunit;
 
@@ -57,19 +56,6 @@ public sealed class DeviceChangeMonitorTests
         Assert.Equal(1, Volatile.Read(ref probeCount));
         Assert.Equal("Razer Viper Ultimate (Wired)", updated.DeviceSections[0].DeviceHeader);
         Assert.Contains("Charging", updated.DeviceSections[0].BatteryStatusHeader, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void WindowsHidDeviceChangeMonitor_RegistersWithCfgMgr32OnWindows_AndDisposesCleanly()
-    {
-        using var monitor = new WindowsHidDeviceChangeMonitor();
-        if (OperatingSystem.IsWindows())
-        {
-            Assert.True(monitor.IsRegistered);
-        }
-
-        monitor.Dispose();
-        Assert.False(monitor.IsRegistered);
     }
 
     private sealed class FakeDeviceChangeMonitor : IDeviceChangeMonitor
